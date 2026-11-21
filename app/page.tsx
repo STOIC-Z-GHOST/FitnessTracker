@@ -417,7 +417,7 @@ export default function FullFitnessTracker() {
 
             <div className="z-20 text-center mt-6">
               <div className="mb-4">
-                <div className="text-3xl font-black tracking-tight text-white drop-shadow-md">My<span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-500 to-purple-500">Fit</span></div>
+                <img src="/logo/myfit-icon.svg" alt="MyFit" className="mx-auto w-28 h-28 mb-1 drop-shadow-[0_0_24px_rgba(244,63,94,0.35)]" />
                 <div className="text-[10px] font-bold tracking-[0.35em] text-gray-400 uppercase mt-0.5">FitnessTracker</div>
               </div>
               <span className="text-xs font-bold tracking-widest text-rose-500 uppercase bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/20">
@@ -447,6 +447,7 @@ export default function FullFitnessTracker() {
               <button onClick={() => setCurrentView('welcome')} className="text-sm text-gray-400 hover:text-white flex items-center space-x-1 mb-8">
                 <span>← Back</span>
               </button>
+              <img src="/logo/myfit-logo.svg" alt="MyFit" className="h-12 w-auto mb-6" />
               <h2 className="text-3xl font-black tracking-tight mb-2">
                 {authMode === 'signup' ? 'Enter the Arena' : 'Welcome Back, Warrior'}
               </h2>
@@ -1490,9 +1491,7 @@ export default function FullFitnessTracker() {
                   <h2 className="text-2xl font-black mb-6">About Us</h2>
 
                   <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 text-center mb-6">
-                    <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 flex items-center justify-center mb-4 shadow-lg">
-                      <Dumbbell size={28} className="text-white" />
-                    </div>
+                    <img src="/logo/myfit-icon.svg" alt="MyFit" className="w-24 h-24 mx-auto mb-3" />
                     <h3 className="text-lg font-black">MyFit <span className="text-gray-400 font-bold">FitnessTracker</span></h3>
                     <p className="text-xs text-gray-500 mt-1">Version 1.0.0</p>
                   </div>
@@ -1547,6 +1546,10 @@ export default function FullFitnessTracker() {
               >
                 <ArrowLeft size={18} />
               </button>
+            )}
+
+            {activeTab === 'home' && (
+              <img src="/logo/myfit-logo.svg" alt="MyFit" className="absolute top-[26px] left-5 z-30 h-10 w-auto pointer-events-none select-none" />
             )}
 
             {activeTab === 'home' && (
