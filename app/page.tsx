@@ -274,9 +274,8 @@ export default function FullFitnessTracker() {
       id: 0,
       title: "Pike Push-Ups",
       icon: Target,
-      imgStart: "/Pike Push-Up up.jpg",   
-      imgEnd: "/Pike Push-Up down.jpg",   
-      mirrorStartFrame: false,    
+      video: "/exercises/pike-push-up",
+      poster: "/exercises/pike-push-up-poster.webp",
       setsCount: experience === "beginner" ? 3 : experience === "advanced" ? 4 : 3,
       desc: experience === "beginner" ? "3 Sets • 5 Reps" : 
             experience === "advanced" ? "4 Sets • 12 Reps" : "3 Sets • 8 Reps",
@@ -296,9 +295,8 @@ export default function FullFitnessTracker() {
       id: 1,
       title: "Diamond Push-Ups",
       icon: Dumbbell, 
-      imgStart: "/Diamond Push-Up up.jpg",
-      imgEnd: "/Diamond Push-Up down.jpg",
-      mirrorStartFrame: false,
+      video: "/exercises/diamond-push-up",
+      poster: "/exercises/diamond-push-up-poster.webp",
       setsCount: experience === "beginner" ? 3 : experience === "advanced" ? 4 : 3,
       desc: experience === "beginner" ? "3 Sets • 5 Reps" : 
             experience === "advanced" ? "4 Sets • 15 Reps" : "3 Sets • 10 Reps",
@@ -318,9 +316,8 @@ export default function FullFitnessTracker() {
       id: 2,
       title: "Wide Push-Ups",
       icon: MoveHorizontal,
-      imgStart: "/Wide Push-Up up.jpg",    
-      imgEnd: "/Wide Push-Up down.jpg",    
-      mirrorStartFrame: false,
+      video: "/exercises/wide-push-up",
+      poster: "/exercises/wide-push-up-poster.webp",
       setsCount: experience === "beginner" ? 3 : experience === "advanced" ? 5 : 3,
       desc: experience === "beginner" ? "3 Sets • 10 Reps" : 
             experience === "advanced" ? "5 Sets • 25 Reps" : "3 Sets • 15 Reps",
@@ -401,12 +398,9 @@ export default function FullFitnessTracker() {
         @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
         .scan-overlay { background: linear-gradient(to bottom, transparent 40%, rgba(244, 63, 94, 0.1) 50%, transparent 60%); animation: scanline 3s linear infinite; }
 
-        @keyframes repLoop { 
-          0%, 35% { opacity: 1; }      
-          45%, 85% { opacity: 0; }     
-          95%, 100% { opacity: 1; }    
-        }
-        .animate-rep-loop { animation: repLoop 5s ease-in-out infinite; }
+        
+        @keyframes myfitShine { 0% { transform: translateX(-150%) skewX(-20deg); } 60%, 100% { transform: translateX(350%) skewX(-20deg); } }
+        .myfit-shine { width: 40%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.22), transparent); animation: myfitShine 3.6s ease-in-out infinite; }
         
         @keyframes fillRing { from { stroke-dasharray: 0, 100; } to { stroke-dasharray: 75, 100; } }
         .animate-ring { animation: fillRing 1.5s ease-out forwards; }
@@ -422,6 +416,10 @@ export default function FullFitnessTracker() {
             <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/70 to-gray-900/50 z-10" />
 
             <div className="z-20 text-center mt-6">
+              <div className="mb-4">
+                <div className="text-3xl font-black tracking-tight text-white drop-shadow-md">My<span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-500 to-purple-500">Fit</span></div>
+                <div className="text-[10px] font-bold tracking-[0.35em] text-gray-400 uppercase mt-0.5">FitnessTracker</div>
+              </div>
               <span className="text-xs font-bold tracking-widest text-rose-500 uppercase bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/20">
                 The RPG Fitness Experience
               </span>
@@ -461,7 +459,7 @@ export default function FullFitnessTracker() {
               <div className="mt-8 space-y-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Email Address</label>
-                  <input type="email" placeholder="warrior@fittrack.com" className="w-full bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-white focus:border-rose-500 focus:outline-none text-sm" />
+                  <input type="email" placeholder="warrior@myfit.us.ci" className="w-full bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-white focus:border-rose-500 focus:outline-none text-sm" />
                 </div>
                 <div>
                   <div className="flex justify-between items-center mb-2">
@@ -891,21 +889,46 @@ export default function FullFitnessTracker() {
                             {isExpanded && (
                               <div className="px-4 pb-4 pt-2 border-t border-gray-700/50 bg-gray-800/40 space-y-5">
                                 
-                                <div className="relative w-full aspect-video bg-[#0a0a0a] rounded-xl overflow-hidden border border-gray-700 flex items-center justify-center mt-2 group">
-                                  <img 
-                                    src={workout.imgEnd} 
-                                    alt={`${workout.title} down`} 
-                                    className="absolute w-full h-full object-cover" 
-                                  />
-                                  <img 
-                                    src={workout.imgStart} 
-                                    alt={`${workout.title} up`} 
-                                    className={`absolute w-full h-full object-cover animate-rep-loop ${workout.mirrorStartFrame ? 'scale-x-[-1]' : ''}`} 
-                                  />
+                                <div className="relative w-full aspect-video bg-[#0a0a0a] rounded-xl overflow-hidden border border-gray-700 flex items-center justify-center mt-2 group" style={{ containerType: 'inline-size' }}>
+                                  <video
+                                    key={workout.video}
+                                    poster={workout.poster}
+                                    aria-label={`${workout.title} demonstration`}
+                                    className="absolute w-full h-full object-cover"
+                                    autoPlay
+                                    loop
+                                    muted
+                                    playsInline
+                                    preload="auto"
+                                  >
+                                    <source src={`${workout.video}.webm`} type="video/webm" />
+                                    <source src={`${workout.video}.mp4`} type="video/mp4" />
+                                  </video>
                                   
                                   <div className="absolute inset-0 scan-overlay pointer-events-none" />
-                                  <div className="absolute top-3 left-3 bg-black/80 px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border border-rose-500/30 text-rose-400 flex items-center space-x-1.5 backdrop-blur-sm z-10">
-                                    <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse mr-1"></span> 5s Target Pace
+                                  <div
+                                    className="absolute z-10 pointer-events-none select-none overflow-hidden flex items-center justify-center whitespace-nowrap"
+                                    style={{
+                                      left: '4%', top: '1.5%', width: '27%', height: '15.5%',
+                                      borderRadius: '2.4cqw', gap: '1cqw',
+                                      background: 'linear-gradient(135deg, #0b0b12 0%, #1b1026 100%)',
+                                      boxShadow: '0 0 0 0.4cqw rgba(244,63,94,0.6), 0 0 4cqw rgba(168,85,247,0.45)',
+                                    }}
+                                  >
+                                    <svg viewBox="0 0 24 24" style={{ width: '4.4cqw', height: '4.4cqw', filter: 'drop-shadow(0 0 1cqw rgba(244,63,94,0.8))' }} aria-hidden="true">
+                                      <defs>
+                                        <linearGradient id="myfitBolt" x1="0" y1="0" x2="1" y2="1">
+                                          <stop offset="0%" stopColor="#fb7185" />
+                                          <stop offset="100%" stopColor="#c084fc" />
+                                        </linearGradient>
+                                      </defs>
+                                      <path d="M13 2 4 14h6l-1 8 9-12h-6z" fill="url(#myfitBolt)" />
+                                    </svg>
+                                    <span className="font-black italic tracking-tight" style={{ fontSize: '4.8cqw', lineHeight: 1 }}>
+                                      <span className="text-white">MY</span>
+                                      <span className="bg-gradient-to-r from-rose-400 to-purple-400 bg-clip-text text-transparent">FIT</span>
+                                    </span>
+                                    <span className="absolute top-0 bottom-0 left-0 myfit-shine" />
                                   </div>
                                 </div>
 
@@ -1470,7 +1493,7 @@ export default function FullFitnessTracker() {
                     <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 flex items-center justify-center mb-4 shadow-lg">
                       <Dumbbell size={28} className="text-white" />
                     </div>
-                    <h3 className="text-lg font-black">The RPG Fitness Experience</h3>
+                    <h3 className="text-lg font-black">MyFit <span className="text-gray-400 font-bold">FitnessTracker</span></h3>
                     <p className="text-xs text-gray-500 mt-1">Version 1.0.0</p>
                   </div>
 
@@ -1481,7 +1504,7 @@ export default function FullFitnessTracker() {
                   <div className="space-y-3 mb-8">
                     <div className="flex items-center justify-between bg-gray-900 rounded-xl border border-gray-800 p-4">
                       <span className="text-sm text-gray-300">Contact Support</span>
-                      <span className="text-xs text-rose-400 font-medium">support@fittrack.com</span>
+                      <span className="text-xs text-rose-400 font-medium">support@myfit.us.ci</span>
                     </div>
                     <button className="w-full flex items-center justify-between bg-gray-900 rounded-xl border border-gray-800 p-4 hover:border-gray-700 transition-colors">
                       <span className="text-sm text-gray-300">Privacy Policy</span>
