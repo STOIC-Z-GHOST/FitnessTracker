@@ -36,6 +36,11 @@ import {
   RotateCcw,
   Swords
 } from 'lucide-react';
+import GuidedWorkout, { PlayerExercise } from './GuidedWorkout';
+import {
+  BASE_SETS, MAX_SETS, MAX_EXTRA_SETS, SETS_PER_LEVEL_UP, MAX_REST_DAYS, WEEKDAY_LABELS, WEEKDAY_NAMES,
+  PROGRESSION_OPTIONS, tierFromMax, targetFor, setsForExtra, todayStr, daysBetween, estimateMinutes,
+} from './workoutPlan';
 
 // --- AVATAR CUSTOMIZATION PRESETS ---
 const AVATAR_ICONS: Record<string, any> = { Crown, Swords, Shield, Flame, Zap, Dumbbell, Target, Trophy };
@@ -161,6 +166,16 @@ export default function FullFitnessTracker() {
   const [experience, setExperience] = useState<string>('advanced');
   const [userName, setUserName] = useState<string>('');
 
+  // Guided workout / schedule
+  const [restDays, setRestDays] = useState<number[]>([]);            // 0 = Sunday ... 6 = Saturday, max 2
+  const [progressEvery, setProgressEvery] = useState<number>(7);      // add sets every N days
+  const [extraSets, setExtraSets] = useState<number>(0);              // sets added on top of BASE_SETS
+  const [lastProgressDate, setLastProgressDate] = useState<string>('');
+  const [lastCompletedDate, setLastCompletedDate] = useState<string>('');
+  const [workoutDate, setWorkoutDate] = useState<string>('');
+  const [showGuided, setShowGuided] = useState(false);
+  const [trainOnRestDay, setTrainOnRestDay] = useState(false);
+
   const [avatarConfig, setAvatarConfig] = useState({
     type: 'icon' as 'icon' | 'emoji',
     icon: 'Crown',
@@ -181,7 +196,7 @@ export default function FullFitnessTracker() {
         if (data.activeTab) setActiveTab(data.activeTab);
         if (typeof data.currency === 'number') setCurrency(data.currency);
         if (Array.isArray(data.purchasedItems)) setPurchasedItems(data.purchasedItems);
-        if (data.workoutSets) setWorkoutSets(data.workoutSets);
+        if (data.workoutSets && data.workoutDate === todayStr()) setWorkoutSets(data.workoutSets);
         if (data.settings) setSettings((s) => ({ ...s, ...data.settings }));
         if (data.age) setAge(data.age);
         if (data.weight) setWeight(data.weight);
@@ -189,6 +204,25 @@ export default function FullFitnessTracker() {
         if (data.experience) setExperience(data.experience);
         if (data.avatarConfig) setAvatarConfig((a) => ({ ...a, ...data.avatarConfig }));
         if (typeof data.userName === 'string') setUserName(data.userName);
+      }
+      {
+        const d = saved ? JSON.parse(saved) : {};
+        const today = todayStr();
+        setWorkoutDate(today);
+        if (Array.isArray(d.restDays)) setRestDays(d.restDays.filter((n: unknown) => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 6).slice(0, MAX_REST_DAYS));
+        const every = PROGRESSION_OPTIONS.some((o) => o.days === d.progressEvery) ? (d.progressEvery as number) : 7;
+        setProgressEvery(every);
+        let extra = typeof d.extraSets === 'number' ? d.extraSets : 0;
+        let lastProg = typeof d.lastProgressDate === 'string' && d.lastProgressDate ? d.lastProgressDate : today;
+        const lastDone = typeof d.lastCompletedDate === 'string' ? d.lastCompletedDate : '';
+        // level up only if you actually finished a workout since the last level-up
+        if (lastDone && lastDone >= lastProg && daysBetween(lastProg, today) >= every) {
+          extra = Math.min(MAX_EXTRA_SETS, extra + SETS_PER_LEVEL_UP);
+          lastProg = today;
+        }
+        setExtraSets(extra);
+        setLastProgressDate(lastProg);
+        setLastCompletedDate(lastDone);
       }
     } catch (e) {
       console.error('Could not load saved progress', e);
@@ -202,12 +236,13 @@ export default function FullFitnessTracker() {
     try {
       localStorage.setItem('fittrack_save', JSON.stringify({
         currentView, authMode, activeTab, currency, purchasedItems, workoutSets,
-        settings, age, weight, maxPushups, experience, avatarConfig, userName
+        settings, age, weight, maxPushups, experience, avatarConfig, userName,
+        restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate
       }));
     } catch (e) {
       console.error('Could not save progress', e);
     }
-  }, [isLoaded, currentView, authMode, activeTab, currency, purchasedItems, workoutSets, settings, age, weight, maxPushups, experience, avatarConfig, userName]);
+  }, [isLoaded, currentView, authMode, activeTab, currency, purchasedItems, workoutSets, settings, age, weight, maxPushups, experience, avatarConfig, userName, restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate]);
 
   // RESET BUTTON CONFIRMATION
   const resetProgress = () => {
@@ -269,6 +304,9 @@ export default function FullFitnessTracker() {
     });
   };
 
+  const tier = tierFromMax(maxPushups);
+  const planSets = setsForExtra(extraSets);
+
   const workoutData = [
     {
       id: 0,
@@ -276,11 +314,11 @@ export default function FullFitnessTracker() {
       icon: Target,
       video: "/exercises/pike-push-up",
       poster: "/exercises/pike-push-up-poster.webp",
-      setsCount: experience === "beginner" ? 3 : experience === "advanced" ? 4 : 3,
-      desc: experience === "beginner" ? "3 Sets • 5 Reps" : 
-            experience === "advanced" ? "4 Sets • 12 Reps" : "3 Sets • 8 Reps",
-      repLabel: experience === "beginner" ? "5 Reps" : 
-                experience === "advanced" ? "12 Reps" : "8 Reps",
+      kind: 'reps' as const,
+      target: targetFor(0, tier),
+      setsCount: planSets,
+      desc: `${planSets} Sets • ${targetFor(0, tier)} Reps`,
+      repLabel: `${targetFor(0, tier)} Reps`,
       mechanics: "Elevating the hips into an inverted-V shifts the angle of push from a horizontal press to a vertical overhead press. Notice how the head properly tracks forward to form a perfect tripod base.",
       primary: "Shoulders (Anterior & Lateral Deltoids) & Upper Chest.",
       secondary: "Triceps Brachii and Serratus Anterior.",
@@ -297,11 +335,11 @@ export default function FullFitnessTracker() {
       icon: Dumbbell, 
       video: "/exercises/diamond-push-up",
       poster: "/exercises/diamond-push-up-poster.webp",
-      setsCount: experience === "beginner" ? 3 : experience === "advanced" ? 4 : 3,
-      desc: experience === "beginner" ? "3 Sets • 5 Reps" : 
-            experience === "advanced" ? "4 Sets • 15 Reps" : "3 Sets • 10 Reps",
-      repLabel: experience === "beginner" ? "5 Reps" : 
-                experience === "advanced" ? "15 Reps" : "10 Reps",
+      kind: 'reps' as const,
+      target: targetFor(1, tier),
+      setsCount: planSets,
+      desc: `${planSets} Sets • ${targetFor(1, tier)} Reps`,
+      repLabel: `${targetFor(1, tier)} Reps`,
       mechanics: "Bringing the hands close together forces the elbows through a massive degree of flexion and extension, shifting the load directly onto the arms.",
       primary: "Triceps Brachii (Lateral & Long Heads).",
       secondary: "Inner Chest (Sternal Pectoralis).",
@@ -318,11 +356,11 @@ export default function FullFitnessTracker() {
       icon: MoveHorizontal,
       video: "/exercises/wide-push-up",
       poster: "/exercises/wide-push-up-poster.webp",
-      setsCount: experience === "beginner" ? 3 : experience === "advanced" ? 5 : 3,
-      desc: experience === "beginner" ? "3 Sets • 10 Reps" : 
-            experience === "advanced" ? "5 Sets • 25 Reps" : "3 Sets • 15 Reps",
-      repLabel: experience === "beginner" ? "10 Reps" : 
-                experience === "advanced" ? "25 Reps" : "15 Reps",
+      kind: 'reps' as const,
+      target: targetFor(2, tier),
+      setsCount: planSets,
+      desc: `${planSets} Sets • ${targetFor(2, tier)} Reps`,
+      repLabel: `${targetFor(2, tier)} Reps`,
       mechanics: "By moving the hands out past shoulder width, you reduce the range of motion at the elbow and force the shoulder joint to do the heavy lifting.",
       primary: "Chest (Pectoralis Major - Outer & Sternal Head).",
       secondary: "Anterior Deltoids (Front Shoulders).",
@@ -331,6 +369,27 @@ export default function FullFitnessTracker() {
         "Set your hands considerably wider than shoulder-width apart.",
         "Keep your core completely rigid and lower your chest down smoothly.",
         "Drive upward focused on contracting your outer chest muscles."
+      ]
+    },
+    {
+      id: 3,
+      title: "Plank Hold",
+      icon: Timer,
+      video: null as string | null,
+      poster: "/exercises/plank-poster.webp",
+      kind: 'hold' as const,
+      target: targetFor(3, tier),
+      setsCount: planSets,
+      desc: `${planSets} Sets • ${targetFor(3, tier)}s Hold`,
+      repLabel: `${targetFor(3, tier)}s Hold`,
+      mechanics: "A static hold on your forearms. Nothing moves, so the whole trunk has to brace against gravity while your shoulders stabilise the weight of your body.",
+      primary: "Core (Rectus Abdominis & Transverse Abdominis).",
+      secondary: "Shoulders (Anterior Deltoids) and Serratus Anterior.",
+      synergists: "Glutes, Quads and Lower Back.",
+      steps: [
+        "Forearms flat on the floor, elbows directly under your shoulders.",
+        "Make one straight line from head to heels: squeeze your glutes and brace your abs as if about to take a punch.",
+        "Look at the floor between your hands, breathe steadily, and keep your hips from sagging or piking up until the timer ends."
       ]
     }
   ];
@@ -345,6 +404,36 @@ export default function FullFitnessTracker() {
     return s.length > 0 && s.every(Boolean);
   }).length;
   const allWorkoutsDone = totalSetsToday > 0 && exercisesFullyDone === workoutData.length;
+
+  // --- Guided workout helpers ---
+  const playerExercises: PlayerExercise[] = workoutData.map((w) => ({
+    id: w.id, title: w.title, kind: w.kind, target: w.target, video: w.video, poster: w.poster, setsCount: w.setsCount,
+  }));
+  const playerDone: Record<number, boolean[]> = Object.fromEntries(workoutData.map((w) => [w.id, getSetsArray(w)]));
+  const guidedMinutes = estimateMinutes(playerExercises, planSets, completedSetsToday);
+  const isRestDay = restDays.includes(new Date().getDay());
+  const restingToday = isRestDay && !trainOnRestDay;
+  const nextTrainingDayName = (() => {
+    for (let i = 1; i <= 7; i++) {
+      const d = (new Date().getDay() + i) % 7;
+      if (!restDays.includes(d)) return i === 1 ? 'tomorrow' : WEEKDAY_NAMES[d];
+    }
+    return 'tomorrow';
+  })();
+
+  // Only ever turns a set ON (the Done button); un-checking stays in the manual list.
+  const logSetDone = (exerciseId: number, setIndex: number) => {
+    const w = workoutData.find((x) => x.id === exerciseId);
+    if (!w) return;
+    const cur = [...getSetsArray(w)];
+    if (cur[setIndex]) return;
+    cur[setIndex] = true;
+    setWorkoutSets((prev) => ({ ...prev, [exerciseId]: cur }));
+    setCurrency((c) => c + 10);
+  };
+
+  const toggleRestDay = (day: number) =>
+    setRestDays((prev) => prev.includes(day) ? prev.filter((d) => d !== day) : prev.length >= MAX_REST_DAYS ? prev : [...prev, day]);
 
   const CALORIES_PER_SET = 12;
   const MINUTES_PER_SET = 1.5;
@@ -380,6 +469,10 @@ export default function FullFitnessTracker() {
   });
   const last7Days = calendarDays.slice(Math.max(0, TODAY_INDEX - 6), TODAY_INDEX + 1);
 
+  useEffect(() => {
+    if (isLoaded && allWorkoutsDone && lastCompletedDate !== todayStr()) setLastCompletedDate(todayStr());
+  }, [isLoaded, allWorkoutsDone, lastCompletedDate]);
+
   if (!isLoaded) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -408,6 +501,18 @@ export default function FullFitnessTracker() {
 
       {/* MOBILE APP FRAME - Fixed height layout implemented here */}
       <div className="w-full max-w-md bg-gray-900 h-[100dvh] sm:h-[850px] sm:rounded-3xl shadow-2xl relative flex flex-col border border-gray-800 overflow-hidden">
+        {showGuided && (
+          <GuidedWorkout
+            exercises={playerExercises}
+            rounds={planSets}
+            done={playerDone}
+            sound={settings.sound}
+            vibration={settings.vibration}
+            autoRest={settings.autoRestTimer}
+            onLogSet={logSetDone}
+            onClose={() => setShowGuided(false)}
+          />
+        )}
         
         {/* VIEW 1: WELCOME SCREEN */}
         {currentView === 'welcome' && (
@@ -582,6 +687,7 @@ export default function FullFitnessTracker() {
                       <span>100+</span>
                     </div>
                   </div>
+                  <p className="text-sm text-center font-bold text-purple-300">Your starting plan: {BASE_SETS} sets of {targetFor(2, tierFromMax(maxPushups))} reps</p>
                   <p className="text-xs text-gray-500 text-center px-4">Don't worry about being exact — your Power Level recalibrates every week based on real performance.</p>
                 </div>
               )}
@@ -845,10 +951,34 @@ export default function FullFitnessTracker() {
                         <h2 className="text-xl font-bold tracking-tight">Today's Target</h2>
                         <p className="text-sm text-gray-400">Push Day Matrix</p>
                       </div>
-                      <span className="text-xs text-rose-400 font-bold uppercase tracking-wider bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">Active</span>
+                      <span className="text-xs text-rose-400 font-bold uppercase tracking-wider bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">{restingToday ? 'Rest Day' : 'Active'}</span>
                     </div>
 
-                    <div className="space-y-6">
+                    {restingToday && (
+                      <div className="rounded-2xl border border-purple-500/30 bg-purple-950/20 p-6 text-center space-y-3 mb-6">
+                        <h3 className="text-lg font-black">Rest day</h3>
+                        <p className="text-sm text-gray-400">Your muscles grow while you recover. Next workout: {nextTrainingDayName}.</p>
+                        <button onClick={() => setTrainOnRestDay(true)} className="text-xs font-bold text-gray-400 underline underline-offset-4">Train anyway</button>
+                      </div>
+                    )}
+
+                    {!restingToday && (
+                      <button
+                        onClick={() => !allWorkoutsDone && setShowGuided(true)}
+                        disabled={allWorkoutsDone}
+                        className={`w-full mb-6 py-4 rounded-2xl font-black tracking-wide flex items-center justify-center space-x-2 transition-transform ${
+                          allWorkoutsDone
+                            ? 'bg-gray-900 border border-gray-800 text-gray-500'
+                            : 'bg-gradient-to-r from-rose-500 to-purple-600 shadow-lg shadow-rose-500/20 active:scale-[0.98]'
+                        }`}
+                      >
+                        {allWorkoutsDone ? (<><CheckCircle2 size={18} /><span>WORKOUT COMPLETE</span></>) : (
+                          <><Zap size={18} /><span>{completedSetsToday > 0 ? 'RESUME GUIDED WORKOUT' : 'START GUIDED WORKOUT'}</span><span className="text-[11px] font-mono font-medium opacity-80">~{guidedMinutes} min</span></>
+                        )}
+                      </button>
+                    )}
+
+                    <div className={`space-y-6 ${restingToday ? 'hidden' : ''}`}>
                       {workoutData.map((workout, index) => {
                         const sets = getSetsArray(workout);
                         
@@ -891,6 +1021,7 @@ export default function FullFitnessTracker() {
                               <div className="px-4 pb-4 pt-2 border-t border-gray-700/50 bg-gray-800/40 space-y-5">
                                 
                                 <div className="relative w-full aspect-video bg-[#0a0a0a] rounded-xl overflow-hidden border border-gray-700 flex items-center justify-center mt-2 group" style={{ containerType: 'inline-size' }}>
+                                  {workout.video ? (
                                   <video
                                     key={workout.video}
                                     poster={workout.poster}
@@ -905,6 +1036,9 @@ export default function FullFitnessTracker() {
                                     <source src={`${workout.video}.webm`} type="video/webm" />
                                     <source src={`${workout.video}.mp4`} type="video/mp4" />
                                   </video>
+                                  ) : (
+                                    <img src={workout.poster} alt={workout.title} className="absolute w-full h-full object-cover" />
+                                  )}
                                   
                                   <div className="absolute inset-0 scan-overlay pointer-events-none" />
                                   <div
@@ -1402,6 +1536,57 @@ export default function FullFitnessTracker() {
                             </div>
                           </div>
                           <Toggle checked={settings.autoRestTimer} onChange={() => setSettings((s) => ({ ...s, autoRestTimer: !s.autoRestTimer }))} />
+                        </div>
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-center space-x-3">
+                            <Calendar size={18} className="text-gray-400 shrink-0" />
+                            <div>
+                              <p className="text-sm font-medium text-gray-200">Rest Days</p>
+                              <p className="text-[11px] text-gray-500">Pick up to {MAX_REST_DAYS} days to recover each week</p>
+                            </div>
+                          </div>
+                          <div className="flex justify-between">
+                            {WEEKDAY_LABELS.map((label, day) => {
+                              const on = restDays.includes(day);
+                              const locked = !on && restDays.length >= MAX_REST_DAYS;
+                              return (
+                                <button
+                                  key={day}
+                                  onClick={() => toggleRestDay(day)}
+                                  disabled={locked}
+                                  aria-label={WEEKDAY_NAMES[day]}
+                                  aria-pressed={on}
+                                  className={`w-9 h-9 rounded-full text-xs font-bold border transition-all ${
+                                    on ? 'bg-gradient-to-r from-rose-500 to-purple-600 border-transparent text-white' : locked ? 'border-gray-800 text-gray-700' : 'border-gray-700 text-gray-300 hover:border-gray-500'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {restDays.length >= MAX_REST_DAYS && <p className="text-[11px] text-gray-500">That&apos;s the max. Tap a selected day to swap it.</p>}
+                        </div>
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-center space-x-3">
+                            <Zap size={18} className="text-gray-400 shrink-0" />
+                            <div>
+                              <p className="text-sm font-medium text-gray-200">Level Up</p>
+                              <p className="text-[11px] text-gray-500">+{SETS_PER_LEVEL_UP} sets per exercise, only after you finish your workouts</p>
+                            </div>
+                          </div>
+                          <div className="flex bg-gray-800 rounded-lg p-1">
+                            {PROGRESSION_OPTIONS.map((o) => (
+                              <button
+                                key={o.days}
+                                onClick={() => setProgressEvery(o.days)}
+                                className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-colors ${progressEvery === o.days ? 'bg-gray-950 text-white shadow' : 'text-gray-500'}`}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-gray-500">Right now: {planSets} sets per exercise (starts at {BASE_SETS}, max {MAX_SETS}).</p>
                         </div>
                         <div className="flex items-center justify-between p-4">
                           <div className="flex items-center space-x-3">
