@@ -417,7 +417,7 @@ export default function FullFitnessTracker() {
 
             <div className="z-20 text-center mt-6">
               <div className="mb-4">
-                <img src="/logo/myfit-icon.svg" alt="MyFit" className="mx-auto w-28 h-28 mb-1 drop-shadow-[0_0_24px_rgba(244,63,94,0.35)]" />
+                <img src="/logo/myfit-symbol.svg" alt="MyFit" className="mx-auto h-32 w-auto mb-2 drop-shadow-[0_0_24px_rgba(244,63,94,0.35)]" />
                 <div className="text-[10px] font-bold tracking-[0.35em] text-gray-400 uppercase mt-0.5">FitnessTracker</div>
               </div>
               <span className="text-xs font-bold tracking-widest text-rose-500 uppercase bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/20">
@@ -447,7 +447,7 @@ export default function FullFitnessTracker() {
               <button onClick={() => setCurrentView('welcome')} className="text-sm text-gray-400 hover:text-white flex items-center space-x-1 mb-8">
                 <span>← Back</span>
               </button>
-              <img src="/logo/myfit-logo.svg" alt="MyFit" className="h-12 w-auto mb-6" />
+              <img src="/logo/myfit-wordmark.svg" alt="MyFit" className="h-10 w-auto mb-6" />
               <h2 className="text-3xl font-black tracking-tight mb-2">
                 {authMode === 'signup' ? 'Enter the Arena' : 'Welcome Back, Warrior'}
               </h2>
@@ -636,7 +636,7 @@ export default function FullFitnessTracker() {
               {/* TAB: HOME */}
               {activeTab === 'home' && (
                 <div className="animate-fade">
-                  <div className="p-6 bg-gradient-to-b from-gray-800 to-gray-900 rounded-b-3xl shadow-lg border-b border-gray-800">
+                  <div className="px-6 pb-6 pt-[76px] bg-gradient-to-b from-gray-800 to-gray-900 rounded-b-3xl shadow-lg border-b border-gray-800">
                     <div className="flex justify-between items-center mb-6 pr-16">
                       <div>
                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Welcome back,</p>
@@ -1491,7 +1491,7 @@ export default function FullFitnessTracker() {
                   <h2 className="text-2xl font-black mb-6">About Us</h2>
 
                   <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 text-center mb-6">
-                    <img src="/logo/myfit-icon.svg" alt="MyFit" className="w-24 h-24 mx-auto mb-3" />
+                    <img src="/logo/myfit-symbol.svg" alt="MyFit" className="h-28 w-auto mx-auto mb-3" />
                     <h3 className="text-lg font-black">MyFit <span className="text-gray-400 font-bold">FitnessTracker</span></h3>
                     <p className="text-xs text-gray-500 mt-1">Version 1.0.0</p>
                   </div>
@@ -1549,7 +1549,7 @@ export default function FullFitnessTracker() {
             )}
 
             {activeTab === 'home' && (
-              <img src="/logo/myfit-logo.svg" alt="MyFit" className="absolute top-[26px] left-5 z-30 h-10 w-auto pointer-events-none select-none" />
+              <img src="/logo/myfit-wordmark.svg" alt="MyFit" className="absolute top-7 left-6 z-30 h-9 w-auto pointer-events-none select-none drop-shadow-[0_0_10px_rgba(244,63,94,0.25)]" />
             )}
 
             {activeTab === 'home' && (
