@@ -38,8 +38,8 @@ import {
 } from 'lucide-react';
 import GuidedWorkout, { PlayerExercise } from './GuidedWorkout';
 import {
-  BASE_SETS, MAX_SETS, MAX_EXTRA_SETS, SETS_PER_LEVEL_UP, MAX_REST_DAYS, WEEKDAY_LABELS, WEEKDAY_NAMES,
-  PROGRESSION_OPTIONS, tierFromMax, targetFor, setsForExtra, todayStr, daysBetween, estimateMinutes,
+  MAX_SETS, MAX_EXTRA_SETS, SETS_PER_LEVEL_UP, MAX_REST_DAYS, WEEKDAY_LABELS, WEEKDAY_NAMES,
+  PROGRESSION_OPTIONS, profileFor, targetFor, setsForExtra, todayStr, daysBetween, estimateMinutes,
 } from './workoutPlan';
 
 // --- AVATAR CUSTOMIZATION PRESETS ---
@@ -145,7 +145,7 @@ export default function FullFitnessTracker() {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [currency, setCurrency] = useState<number>(350);
   const [purchasedItems, setPurchasedItems] = useState<string[]>(['item_2']);
-  const [selectedDay, setSelectedDay] = useState<number | null>(27);
+  const [selectedDay, setSelectedDay] = useState<string | null>(() => todayStr());
   const [isLoaded, setIsLoaded] = useState(false);
   
   const [workoutSets, setWorkoutSets] = useState<{ [key: number]: boolean[] }>({});
@@ -163,7 +163,7 @@ export default function FullFitnessTracker() {
   const [age, setAge] = useState<string>('22');
   const [weight, setWeight] = useState<string>('70');
   const [maxPushups, setMaxPushups] = useState<number>(20);
-  const [experience, setExperience] = useState<string>('advanced');
+  const [experience, setExperience] = useState<string>('intermediate');
   const [userName, setUserName] = useState<string>('');
 
   // Guided workout / schedule
@@ -174,6 +174,8 @@ export default function FullFitnessTracker() {
   const [lastCompletedDate, setLastCompletedDate] = useState<string>('');
   const [workoutDate, setWorkoutDate] = useState<string>('');
   const [showGuided, setShowGuided] = useState(false);
+  const [startDate, setStartDate] = useState<string>('');
+  const [history, setHistory] = useState<Record<string, { power: number; time: number; discipline: number; trained: boolean }>>({});
   const [trainOnRestDay, setTrainOnRestDay] = useState(false);
 
   const [avatarConfig, setAvatarConfig] = useState({
@@ -209,6 +211,8 @@ export default function FullFitnessTracker() {
         const d = saved ? JSON.parse(saved) : {};
         const today = todayStr();
         setWorkoutDate(today);
+        setStartDate(typeof d.startDate === 'string' && d.startDate ? d.startDate : today);
+        if (d.history && typeof d.history === 'object') setHistory(d.history);
         if (Array.isArray(d.restDays)) setRestDays(d.restDays.filter((n: unknown) => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 6).slice(0, MAX_REST_DAYS));
         const every = PROGRESSION_OPTIONS.some((o) => o.days === d.progressEvery) ? (d.progressEvery as number) : 7;
         setProgressEvery(every);
@@ -237,12 +241,12 @@ export default function FullFitnessTracker() {
       localStorage.setItem('fittrack_save', JSON.stringify({
         currentView, authMode, activeTab, currency, purchasedItems, workoutSets,
         settings, age, weight, maxPushups, experience, avatarConfig, userName,
-        restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate
+        restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history
       }));
     } catch (e) {
       console.error('Could not save progress', e);
     }
-  }, [isLoaded, currentView, authMode, activeTab, currency, purchasedItems, workoutSets, settings, age, weight, maxPushups, experience, avatarConfig, userName, restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate]);
+  }, [isLoaded, currentView, authMode, activeTab, currency, purchasedItems, workoutSets, settings, age, weight, maxPushups, experience, avatarConfig, userName, restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history]);
 
   // RESET BUTTON CONFIRMATION
   const resetProgress = () => {
@@ -304,8 +308,8 @@ export default function FullFitnessTracker() {
     });
   };
 
-  const tier = tierFromMax(maxPushups);
-  const planSets = setsForExtra(extraSets);
+  const profile = profileFor(experience);
+  const planSets = setsForExtra(extraSets, profile.baseSets);
 
   const workoutData = [
     {
@@ -315,10 +319,10 @@ export default function FullFitnessTracker() {
       video: "/exercises/pike-push-up",
       poster: "/exercises/pike-push-up-poster.webp",
       kind: 'reps' as const,
-      target: targetFor(0, tier),
+      target: targetFor(0, maxPushups, experience),
       setsCount: planSets,
-      desc: `${planSets} Sets • ${targetFor(0, tier)} Reps`,
-      repLabel: `${targetFor(0, tier)} Reps`,
+      desc: `${planSets} Sets • ${targetFor(0, maxPushups, experience)} Reps`,
+      repLabel: `${targetFor(0, maxPushups, experience)} Reps`,
       mechanics: "Elevating the hips into an inverted-V shifts the angle of push from a horizontal press to a vertical overhead press. Notice how the head properly tracks forward to form a perfect tripod base.",
       primary: "Shoulders (Anterior & Lateral Deltoids) & Upper Chest.",
       secondary: "Triceps Brachii and Serratus Anterior.",
@@ -336,10 +340,10 @@ export default function FullFitnessTracker() {
       video: "/exercises/diamond-push-up",
       poster: "/exercises/diamond-push-up-poster.webp",
       kind: 'reps' as const,
-      target: targetFor(1, tier),
+      target: targetFor(1, maxPushups, experience),
       setsCount: planSets,
-      desc: `${planSets} Sets • ${targetFor(1, tier)} Reps`,
-      repLabel: `${targetFor(1, tier)} Reps`,
+      desc: `${planSets} Sets • ${targetFor(1, maxPushups, experience)} Reps`,
+      repLabel: `${targetFor(1, maxPushups, experience)} Reps`,
       mechanics: "Bringing the hands close together forces the elbows through a massive degree of flexion and extension, shifting the load directly onto the arms.",
       primary: "Triceps Brachii (Lateral & Long Heads).",
       secondary: "Inner Chest (Sternal Pectoralis).",
@@ -357,10 +361,10 @@ export default function FullFitnessTracker() {
       video: "/exercises/wide-push-up",
       poster: "/exercises/wide-push-up-poster.webp",
       kind: 'reps' as const,
-      target: targetFor(2, tier),
+      target: targetFor(2, maxPushups, experience),
       setsCount: planSets,
-      desc: `${planSets} Sets • ${targetFor(2, tier)} Reps`,
-      repLabel: `${targetFor(2, tier)} Reps`,
+      desc: `${planSets} Sets • ${targetFor(2, maxPushups, experience)} Reps`,
+      repLabel: `${targetFor(2, maxPushups, experience)} Reps`,
       mechanics: "By moving the hands out past shoulder width, you reduce the range of motion at the elbow and force the shoulder joint to do the heavy lifting.",
       primary: "Chest (Pectoralis Major - Outer & Sternal Head).",
       secondary: "Anterior Deltoids (Front Shoulders).",
@@ -378,10 +382,10 @@ export default function FullFitnessTracker() {
       video: null as string | null,
       poster: "/exercises/plank-poster.webp",
       kind: 'hold' as const,
-      target: targetFor(3, tier),
+      target: targetFor(3, maxPushups, experience),
       setsCount: planSets,
-      desc: `${planSets} Sets • ${targetFor(3, tier)}s Hold`,
-      repLabel: `${targetFor(3, tier)}s Hold`,
+      desc: `${planSets} Sets • ${targetFor(3, maxPushups, experience)}s Hold`,
+      repLabel: `${targetFor(3, maxPushups, experience)}s Hold`,
       mechanics: "A static hold on your forearms. Nothing moves, so the whole trunk has to brace against gravity while your shoulders stabilise the weight of your body.",
       primary: "Core (Rectus Abdominis & Transverse Abdominis).",
       secondary: "Shoulders (Anterior Deltoids) and Serratus Anterior.",
@@ -410,7 +414,7 @@ export default function FullFitnessTracker() {
     id: w.id, title: w.title, kind: w.kind, target: w.target, video: w.video, poster: w.poster, setsCount: w.setsCount,
   }));
   const playerDone: Record<number, boolean[]> = Object.fromEntries(workoutData.map((w) => [w.id, getSetsArray(w)]));
-  const guidedMinutes = estimateMinutes(playerExercises, planSets, completedSetsToday);
+  const guidedMinutes = estimateMinutes(playerExercises, planSets, completedSetsToday, profile.restExercise, profile.restRound);
   const isRestDay = restDays.includes(new Date().getDay());
   const restingToday = isRestDay && !trainOnRestDay;
   const nextTrainingDayName = (() => {
@@ -445,29 +449,56 @@ export default function FullFitnessTracker() {
   const minuteProgress = Math.min(100, Math.round((minutesActive / MINUTE_GOAL) * 100));
   const dailyTargetPct = Math.min(100, Math.round((calorieProgress + minuteProgress) / 2));
 
-  const TODAY_INDEX = 27;
-  const calendarDays = Array.from({ length: 35 }, (_, i) => {
-    const date = i + 1;
-    let status = 2; 
-    if (i > 27) status = 0;
-    else if (i % 7 === 0 || i % 7 === 4) status = 1;
-    else if (i === 14) status = 3;
-
-    const seed = (i * 53) % 97;
-    let power = status === 2 ? 60 + (seed % 50) : status === 1 ? 20 + (seed % 15) : 0;
-    let time = status === 2 ? 70 + (seed % 40) : status === 1 ? 15 + (seed % 20) : 0;
-    let discipline = status === 2 ? 80 + (seed % 30) : status === 1 ? 30 : 0;
-
-    if (i === TODAY_INDEX) {
-      power = calorieProgress;
-      time = minuteProgress;
-      discipline = dailyTargetPct;
-      status = completedSetsToday > 0 ? 2 : 1;
+  // status: 0 future, 1 rest day (blue), 2 trained (red), 3 missed, 4 today (not done yet)
+  const nowDate = new Date();
+  const todayIso = todayStr(nowDate);
+  const dayInfo = (d: Date) => {
+    const iso = todayStr(d);
+    const rest = restDays.includes(d.getDay());
+    const rec = history[iso];
+    const seed = (d.getDate() * 53) % 97;
+    let status = 0, power = 0, time = 0, discipline = 0;
+    if (iso > todayIso) {
+      status = 0;
+    } else if (iso === todayIso) {
+      power = calorieProgress; time = minuteProgress; discipline = dailyTargetPct;
+      status = completedSetsToday > 0 ? 2 : rest ? 1 : 4;
+    } else if (rec) {
+      power = rec.power; time = rec.time; discipline = rec.discipline;
+      status = rec.trained ? 2 : rest ? 1 : 3;
+    } else if (startDate && iso >= startDate) {
+      status = rest ? 1 : 3;
+    } else if (rest) {
+      // days before the app was first opened still show sample history
+      status = 1; power = 20 + (seed % 15); time = 15 + (seed % 20); discipline = 30;
+    } else if (d.getDate() === 15) {
+      status = 3;
+    } else {
+      status = 2; power = 60 + (seed % 50); time = 70 + (seed % 40); discipline = 80 + (seed % 30);
     }
+    return { iso, date: d.getDate(), status, power, time, discipline };
+  };
+  const monthDays = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 0).getDate();
+  const monthOffset = (new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).getDay() + 6) % 7; // Monday-first grid
+  const calendarDays = Array.from({ length: monthDays }, (_, i) => dayInfo(new Date(nowDate.getFullYear(), nowDate.getMonth(), i + 1)));
+  const last7Days = Array.from({ length: 7 }, (_, i) => dayInfo(new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - 6 + i)));
+  const selectedInfo = selectedDay ? dayInfo(new Date(selectedDay + 'T00:00:00')) : null;
+  const statusLabel = (st: number) => (st === 1 ? 'Rest day' : st === 2 ? 'Trained' : st === 3 ? 'Missed' : st === 4 ? 'Not done yet' : 'Upcoming');
 
-    return { date, status, power, time, discipline };
-  });
-  const last7Days = calendarDays.slice(Math.max(0, TODAY_INDEX - 6), TODAY_INDEX + 1);
+  // remember how each day went, so the calendar becomes your real history
+  useEffect(() => {
+    if (!isLoaded) return;
+    const iso = todayStr();
+    setHistory((prev) => {
+      const cur = prev[iso];
+      const trained = completedSetsToday > 0;
+      if (cur && cur.power === calorieProgress && cur.time === minuteProgress && cur.discipline === dailyTargetPct && cur.trained === trained) return prev;
+      const merged = { ...prev, [iso]: { power: calorieProgress, time: minuteProgress, discipline: dailyTargetPct, trained } };
+      const keys = Object.keys(merged).sort();
+      if (keys.length > 120) keys.slice(0, keys.length - 120).forEach((k) => delete merged[k]);
+      return merged;
+    });
+  }, [isLoaded, calorieProgress, minuteProgress, dailyTargetPct, completedSetsToday]);
 
   useEffect(() => {
     if (isLoaded && allWorkoutsDone && lastCompletedDate !== todayStr()) setLastCompletedDate(todayStr());
@@ -509,6 +540,8 @@ export default function FullFitnessTracker() {
             sound={settings.sound}
             vibration={settings.vibration}
             autoRest={settings.autoRestTimer}
+            restExercise={profile.restExercise}
+            restRound={profile.restRound}
             onLogSet={logSetDone}
             onClose={() => setShowGuided(false)}
           />
@@ -670,7 +703,7 @@ export default function FullFitnessTracker() {
                 </div>
               )}
 
-              {onboardingStep === 3 && (
+              {onboardingStep === 4 && (
                 <div className="space-y-6 animate-fade">
                   <div>
                     <span className="text-xs font-bold text-purple-400 uppercase tracking-widest block mb-1">Power Level</span>
@@ -678,21 +711,21 @@ export default function FullFitnessTracker() {
                   </div>
                   <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 text-center space-y-4 my-8">
                     <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-purple-400">
-                      {maxPushups} <span className="text-base font-medium text-gray-400">Reps</span>
+                      {maxPushups}{maxPushups >= 120 ? '+' : ''} <span className="text-base font-medium text-gray-400">Reps</span>
                     </div>
-                    <input type="range" min="0" max="100" value={maxPushups} onChange={(e) => setMaxPushups(parseInt(e.target.value))} className="w-full accent-rose-500 bg-gray-800 h-2 rounded-lg cursor-pointer" />
+                    <input type="range" min="0" max="120" value={maxPushups} onChange={(e) => setMaxPushups(parseInt(e.target.value))} className="w-full accent-rose-500 bg-gray-800 h-2 rounded-lg cursor-pointer" />
                     <div className="flex justify-between text-[10px] text-gray-500 px-0.5">
                       <span>0</span>
-                      <span>50</span>
-                      <span>100+</span>
+                      <span>60</span>
+                      <span>120+</span>
                     </div>
                   </div>
-                  <p className="text-sm text-center font-bold text-purple-300">Your starting plan: {BASE_SETS} sets of {targetFor(2, tierFromMax(maxPushups))} reps</p>
+                  <p className="text-sm text-center font-bold text-purple-300">Your starting plan: {profile.baseSets} sets of {targetFor(2, maxPushups, experience)} reps &bull; {profile.restExercise}s rest</p>
                   <p className="text-xs text-gray-500 text-center px-4">Don't worry about being exact — your Power Level recalibrates every week based on real performance.</p>
                 </div>
               )}
 
-              {onboardingStep === 4 && (
+              {onboardingStep === 3 && (
                 <div className="space-y-6 animate-fade">
                   <div>
                     <span className="text-xs font-bold text-yellow-400 uppercase tracking-widest block mb-1">Class Archetype</span>
@@ -832,18 +865,16 @@ export default function FullFitnessTracker() {
                   </div>
 
                   <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-4 flex justify-between items-center overflow-x-auto gap-2">
-                    {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((label, idx) => {
-                      const dayIndex = TODAY_INDEX - 6 + idx;
-                      const day = last7Days[idx];
-                      if (!day) return null;
+                    {last7Days.map((day) => {
+                      const label = WEEKDAY_LABELS[new Date(day.iso + 'T00:00:00').getDay()];
                       const ringColor = day.status === 3 ? '#ef4444' : day.status === 1 ? '#3b82f6' : '#f43f5e';
                       return (
-                        <button key={idx} onClick={() => setSelectedDay(dayIndex)} className="flex flex-col items-center space-y-2 shrink-0">
-                          <span className={`text-[10px] font-bold ${selectedDay === dayIndex ? 'text-rose-400' : 'text-gray-500'}`}>{label}</span>
-                          <div className={`relative w-8 h-8 rounded-full transition-all ${selectedDay === dayIndex ? 'ring-2 ring-rose-500 ring-offset-2 ring-offset-gray-900' : ''}`}>
+                        <button key={day.iso} onClick={() => setSelectedDay(day.iso)} className="flex flex-col items-center space-y-2 shrink-0">
+                          <span className={`text-[10px] font-bold ${selectedDay === day.iso ? 'text-rose-400' : 'text-gray-500'}`}>{label}</span>
+                          <div className={`relative w-8 h-8 rounded-full transition-all ${selectedDay === day.iso ? 'ring-2 ring-rose-500 ring-offset-2 ring-offset-gray-900' : ''}`}>
                             <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
                               <circle cx="18" cy="18" r="16" fill="none" stroke="#2a2a35" strokeWidth="4" />
-                              <circle cx="18" cy="18" r="16" fill="none" stroke={ringColor} strokeWidth="4" strokeLinecap="round" strokeDasharray={`${day.power}, 100`} />
+                              <circle cx="18" cy="18" r="16" fill="none" stroke={ringColor} strokeWidth="4" strokeLinecap="round" strokeDasharray={`${Math.min(100, day.power)}, 100`} />
                             </svg>
                           </div>
                         </button>
@@ -858,17 +889,19 @@ export default function FullFitnessTracker() {
                       ))}
                     </div>
                     <div className="grid grid-cols-7 gap-2">
-                      {calendarDays.map((day, i) => (
-                        <div key={i} className="aspect-square flex items-center justify-center relative">
+                      {Array.from({ length: monthOffset }).map((_, i) => (<div key={`blank-${i}`} className="aspect-square" />))}
+                      {calendarDays.map((day) => (
+                        <div key={day.iso} className="aspect-square flex items-center justify-center relative">
                           <button
-                            onClick={() => day.status !== 0 && setSelectedDay(i)}
+                            onClick={() => day.status !== 0 && setSelectedDay(day.iso)}
                             disabled={day.status === 0}
                             className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all
-                              ${day.status === 0 ? 'text-gray-600' : ''} 
-                              ${day.status === 1 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : ''} 
-                              ${day.status === 2 ? 'bg-rose-500 text-white shadow-[0_0_10px_rgba(244,63,94,0.4)]' : ''} 
-                              ${day.status === 3 ? 'bg-gray-900 border border-red-500/50 text-red-500' : ''} 
-                              ${selectedDay === i ? 'ring-2 ring-offset-2 ring-offset-gray-800 ring-white/80' : ''}
+                              ${day.status === 0 ? 'text-gray-600' : ''}
+                              ${day.status === 1 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : ''}
+                              ${day.status === 2 ? 'bg-rose-500 text-white shadow-[0_0_10px_rgba(244,63,94,0.4)]' : ''}
+                              ${day.status === 3 ? 'bg-gray-900 border border-red-500/50 text-red-500' : ''}
+                              ${day.status === 4 ? 'bg-gray-900 border border-dashed border-rose-400/70 text-rose-300' : ''}
+                              ${selectedDay === day.iso ? 'ring-2 ring-offset-2 ring-offset-gray-800 ring-white/80' : ''}
                             `}
                           >
                             {day.date}
@@ -878,11 +911,18 @@ export default function FullFitnessTracker() {
                     </div>
                   </div>
 
-                  {selectedDay !== null && calendarDays[selectedDay] && (
+                  <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 mt-3 text-[10px] text-gray-400">
+                    <span className="flex items-center space-x-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-500" /><span>Trained</span></span>
+                    <span className="flex items-center space-x-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500/40 border border-blue-500/50" /><span>Rest day</span></span>
+                    <span className="flex items-center space-x-1.5"><span className="w-2.5 h-2.5 rounded-full border border-dashed border-rose-400" /><span>Today</span></span>
+                    <span className="flex items-center space-x-1.5"><span className="w-2.5 h-2.5 rounded-full border border-red-500/60" /><span>Missed</span></span>
+                  </div>
+
+                  {selectedInfo && (
                     <div className="mt-4 bg-gray-900 border border-gray-800 rounded-2xl p-5 animate-fade">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-sm font-bold text-gray-200">
-                          {new Date().toLocaleString('default', { month: 'long' })} {calendarDays[selectedDay].date}, {new Date().getFullYear()} {selectedDay === TODAY_INDEX && <span className="text-rose-400">&middot; Today</span>}
+                          {new Date(selectedInfo.iso + 'T00:00:00').toLocaleString('default', { month: 'long', day: 'numeric', year: 'numeric' })} {selectedInfo.iso === todayIso && <span className="text-rose-400">&middot; Today</span>} <span className="text-gray-500 font-normal">&middot; {statusLabel(selectedInfo.status)}</span>
                         </h3>
                         <button onClick={() => setSelectedDay(null)} className="text-gray-500 hover:text-white text-xs font-bold">Close</button>
                       </div>
@@ -893,9 +933,9 @@ export default function FullFitnessTracker() {
                             <circle cx="18" cy="18" r="15" fill="none" stroke="#27272a" strokeWidth="3.2" />
                             <circle cx="18" cy="18" r="10.8" fill="none" stroke="#27272a" strokeWidth="3.2" />
                             <circle cx="18" cy="18" r="6.6" fill="none" stroke="#27272a" strokeWidth="3.2" />
-                            <RingStat pct={calendarDays[selectedDay].power} radius={15} color="#f43f5e" />
-                            <RingStat pct={calendarDays[selectedDay].time} radius={10.8} color="#34d399" />
-                            <RingStat pct={calendarDays[selectedDay].discipline} radius={6.6} color="#38bdf8" />
+                            <RingStat pct={selectedInfo.power} radius={15} color="#f43f5e" />
+                            <RingStat pct={selectedInfo.time} radius={10.8} color="#34d399" />
+                            <RingStat pct={selectedInfo.discipline} radius={6.6} color="#38bdf8" />
                           </svg>
                         </div>
                       </div>
@@ -906,21 +946,21 @@ export default function FullFitnessTracker() {
                             <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
                             <span className="text-xs font-bold text-gray-300">Power</span>
                           </div>
-                          <span className="text-xs text-gray-400">{calendarDays[selectedDay].power}% of goal</span>
+                          <span className="text-xs text-gray-400">{selectedInfo.power}% of goal</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
                             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
                             <span className="text-xs font-bold text-gray-300">Time</span>
                           </div>
-                          <span className="text-xs text-gray-400">{calendarDays[selectedDay].time}% of goal</span>
+                          <span className="text-xs text-gray-400">{selectedInfo.time}% of goal</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
                             <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
                             <span className="text-xs font-bold text-gray-300">Discipline</span>
                           </div>
-                          <span className="text-xs text-gray-400">{calendarDays[selectedDay].discipline}% of goal</span>
+                          <span className="text-xs text-gray-400">{selectedInfo.discipline}% of goal</span>
                         </div>
                       </div>
                     </div>
@@ -1586,7 +1626,7 @@ export default function FullFitnessTracker() {
                               </button>
                             ))}
                           </div>
-                          <p className="text-[11px] text-gray-500">Right now: {planSets} sets per exercise (starts at {BASE_SETS}, max {MAX_SETS}).</p>
+                          <p className="text-[11px] text-gray-500">Right now: {planSets} sets per exercise (starts at {profile.baseSets}, max {MAX_SETS}).</p>
                         </div>
                         <div className="flex items-center justify-between p-4">
                           <div className="flex items-center space-x-3">

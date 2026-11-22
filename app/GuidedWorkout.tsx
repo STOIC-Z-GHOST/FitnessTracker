@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Pause, Play, SkipForward, Check, Timer } from 'lucide-react';
-import { REST_BETWEEN_EXERCISES, REST_BETWEEN_ROUNDS } from './workoutPlan';
 
 export interface PlayerExercise {
   id: number;
@@ -22,6 +21,8 @@ interface Props {
   sound: boolean;
   vibration: boolean;
   autoRest: boolean;
+  restExercise: number;   // seconds between exercises
+  restRound: number;      // seconds after a full round
   onLogSet: (exerciseId: number, setIndex: number) => void;
   onClose: () => void;
 }
@@ -82,7 +83,7 @@ function Ring({ pct, children }: { pct: number; children: React.ReactNode }) {
   );
 }
 
-export default function GuidedWorkout({ exercises, rounds, done, sound, vibration, autoRest, onLogSet, onClose }: Props) {
+export default function GuidedWorkout({ exercises, rounds, done, sound, vibration, autoRest, restExercise, restRound, onLogSet, onClose }: Props) {
   // Build the order once: round 1 (every exercise), round 2 (every exercise)... skipping sets already logged.
   const steps = useMemo(() => {
     const list: { ex: PlayerExercise; setIdx: number; round: number }[] = [];
@@ -100,7 +101,7 @@ export default function GuidedWorkout({ exercises, rounds, done, sound, vibratio
   const [rep, setRep] = useState(0);
   const [holdLeft, setHoldLeft] = useState(0);
   const [restLeft, setRestLeft] = useState(0);
-  const [restTotal, setRestTotal] = useState(REST_BETWEEN_EXERCISES);
+  const [restTotal, setRestTotal] = useState(restExercise);
   const [paused, setPaused] = useState(false);
   const [loggedCount, setLoggedCount] = useState(0);
 
@@ -169,7 +170,7 @@ export default function GuidedWorkout({ exercises, rounds, done, sound, vibratio
     }
     buzz(40);
     if (!nextStep) { beep(1200, 350); setPhase('done'); return; }
-    const dur = nextStep.round !== step.round ? REST_BETWEEN_ROUNDS : REST_BETWEEN_EXERCISES;
+    const dur = nextStep.round !== step.round ? restRound : restExercise;
     lastBeepRef.current = -1;
     setRestTotal(dur);
     setRestLeft(dur);
