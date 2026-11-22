@@ -174,6 +174,7 @@ export default function FullFitnessTracker() {
   const [lastCompletedDate, setLastCompletedDate] = useState<string>('');
   const [workoutDate, setWorkoutDate] = useState<string>('');
   const [showGuided, setShowGuided] = useState(false);
+  const [frameScale, setFrameScale] = useState(1);
   const [startDate, setStartDate] = useState<string>('');
   const [history, setHistory] = useState<Record<string, { power: number; time: number; discipline: number; trained: boolean }>>({});
   const [trainOnRestDay, setTrainOnRestDay] = useState(false);
@@ -485,6 +486,22 @@ export default function FullFitnessTracker() {
   const selectedInfo = selectedDay ? dayInfo(new Date(selectedDay + 'T00:00:00')) : null;
   const statusLabel = (st: number) => (st === 1 ? 'Rest day' : st === 2 ? 'Trained' : st === 3 ? 'Missed' : st === 4 ? 'Not done yet' : 'Upcoming');
 
+  // Phones: full screen. Bigger screens: the app sits in a phone-shaped frame that is scaled to fit
+  // the window (never taller than the screen) and made a bit bigger on touch tablets.
+  useEffect(() => {
+    const FRAME_W = 448, FRAME_H = 850, MARGIN = 32;
+    const update = () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      if (w < 640) { setFrameScale(1); return; }
+      const touch = window.matchMedia('(pointer: coarse)').matches;
+      const fit = Math.min((h - MARGIN) / FRAME_H, (w - MARGIN) / FRAME_W);
+      setFrameScale(Math.max(0.5, Math.min(fit, touch ? 1.35 : 1)));
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
   // remember how each day went, so the calendar becomes your real history
   useEffect(() => {
     if (!isLoaded) return;
@@ -531,7 +548,7 @@ export default function FullFitnessTracker() {
       `}} />
 
       {/* MOBILE APP FRAME - Fixed height layout implemented here */}
-      <div className="w-full max-w-md bg-gray-900 h-[100dvh] sm:h-[850px] sm:rounded-3xl shadow-2xl relative flex flex-col border border-gray-800 overflow-hidden">
+      <div className="w-full max-w-md bg-gray-900 h-[100dvh] sm:h-[850px] sm:rounded-3xl shadow-2xl relative flex flex-col border border-gray-800 overflow-hidden" style={{ zoom: frameScale }}>
         {showGuided && (
           <GuidedWorkout
             exercises={playerExercises}
