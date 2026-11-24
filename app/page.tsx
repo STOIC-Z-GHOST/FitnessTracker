@@ -37,9 +37,20 @@ import {
   Swords
 } from 'lucide-react';
 import GuidedWorkout, { PlayerExercise } from './GuidedWorkout';
+import DailyRewardModal, { DailyReport } from './DailyRewardModal';
+import AchievementsView, { AchievementPreview } from './AchievementsView';
+import AchievementToast, { ToastItem } from './AchievementToast';
+import {
+  SERIES, topAchievement, newTierUnlocks, specialUnlock, seasonalUnlocks, countUnlocked,
+  AchContext, AchMap, Unlock,
+} from './achievements';
+import {
+  STREAK_MIN_FRACTION, MAX_SHIELDS, SHIELD_PRICE, rewardForChain, settleStreak, loginStatus, addDays,
+  EMPTY_LIFETIME, nextMilestone, DayRecord, ProgressState,
+} from './progress';
 import {
   MAX_SETS, MAX_EXTRA_SETS, SETS_PER_LEVEL_UP, MAX_REST_DAYS, WEEKDAY_LABELS, WEEKDAY_NAMES,
-  PROGRESSION_OPTIONS, profileFor, targetFor, setsForExtra, todayStr, daysBetween, estimateMinutes,
+  PROGRESSION_OPTIONS, profileFor, targetFor, setsForExtra, todayStr, daysBetween, estimateMinutes, SECONDS_PER_REP,
 } from './workoutPlan';
 
 // --- AVATAR CUSTOMIZATION PRESETS ---
@@ -90,7 +101,7 @@ const leaderboardData = [
 ];
 
 const shopItems = [
-  { id: 'item_1', name: 'Streak Freeze Matrix', price: 150, desc: 'Prevents streak loss if you miss an active training window.', icon: Flame, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
+  { id: 'item_1', name: 'Streak Shield', price: 400, desc: 'Protects your workout streak when you miss a training day. One shield is used per missed day. Hold up to 3.', icon: Flame, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
   { id: 'item_2', name: 'Cybernetic Avatar Border', price: 250, desc: 'Equip a neon animated halo glow around your profile token.', icon: Sparkles, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
   { id: 'item_3', name: 'Shadow Overlord Aura', price: 500, desc: 'Unlocks custom visual design profiles across community ranking feeds.', icon: Crown, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
 ];
@@ -176,7 +187,16 @@ export default function FullFitnessTracker() {
   const [showGuided, setShowGuided] = useState(false);
   const [frameScale, setFrameScale] = useState(1);
   const [startDate, setStartDate] = useState<string>('');
-  const [history, setHistory] = useState<Record<string, { power: number; time: number; discipline: number; trained: boolean }>>({});
+  const [history, setHistory] = useState<Record<string, DayRecord>>({});
+  const [streakState, setStreakState] = useState<ProgressState>({ streak: 0, best: 0, cursor: '', shields: 0, lifetime: { ...EMPTY_LIFETIME }, tallies: {} });
+  const [loginChain, setLoginChain] = useState(0);
+  const [lastLoginClaim, setLastLoginClaim] = useState('');
+  const [bestLoginChain, setBestLoginChain] = useState(0);
+  const [dailyReport, setDailyReport] = useState<DailyReport | null>(null);
+  const [ach, setAch] = useState<AchMap>({});
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [profileTab, setProfileTab] = useState<'overview' | 'achievements'>('overview');
+  const awardedRef = useRef<Set<string>>(new Set());
   const [trainOnRestDay, setTrainOnRestDay] = useState(false);
 
   const [avatarConfig, setAvatarConfig] = useState({
@@ -228,6 +248,51 @@ export default function FullFitnessTracker() {
         setExtraSets(extra);
         setLastProgressDate(lastProg);
         setLastCompletedDate(lastDone);
+
+        // ---- streak + daily login reward ----
+        const num = (v: unknown) => (typeof v === 'number' && isFinite(v) ? v : 0);
+        const hist = d.history && typeof d.history === 'object' ? d.history : {};
+        const startD = typeof d.startDate === 'string' && d.startDate ? d.startDate : today;
+        const rdays: number[] = Array.isArray(d.restDays) ? d.restDays : [];
+        const legacyShield = Array.isArray(d.purchasedItems) && d.purchasedItems.includes('item_1') ? 1 : 0;
+        const base: ProgressState = {
+          streak: num(d.streak),
+          best: num(d.bestStreak),
+          cursor: typeof d.streakCursor === 'string' && d.streakCursor ? d.streakCursor : addDays(startD, -1),
+          shields: typeof d.shields === 'number' ? d.shields : legacyShield,
+          lifetime: { ...EMPTY_LIFETIME, ...(d.lifetime || {}) },
+          tallies: d.tallies && typeof d.tallies === 'object' ? d.tallies : {},
+        };
+        const settled = settleStreak(base, today, rdays, hist, startD);
+        setStreakState(settled.state);
+        setPurchasedItems((prev) => prev.filter((id) => id !== 'item_1')); // the old one-time freeze is now a stackable shield
+        const chain = num(d.loginChain);
+        const claim = typeof d.lastLoginClaim === 'string' ? d.lastLoginClaim : '';
+        const ls = loginStatus(claim, chain, today);
+        setLoginChain(chain);
+        setLastLoginClaim(claim);
+        setBestLoginChain(num(d.bestLoginChain));
+        const fresh: DailyReport = { shieldsUsed: settled.usedOn.length, lost: settled.lost, lostStreak: settled.lostStreak, chainReset: ls.reset };
+        const carried: DailyReport | null = d.pendingReport && typeof d.pendingReport === 'object' ? d.pendingReport : null;
+        const merged: DailyReport = {
+          shieldsUsed: fresh.shieldsUsed + (carried?.shieldsUsed || 0),
+          lost: fresh.lost || !!carried?.lost,
+          lostStreak: fresh.lost ? fresh.lostStreak : carried?.lostStreak || 0,
+          chainReset: fresh.chainReset || !!carried?.chainReset,
+        };
+        setDailyReport(ls.claimed ? null : merged);
+
+        // ---- achievements ----
+        const achLoaded: AchMap = d.ach && typeof d.ach === 'object' ? d.ach : {};
+        setAch(achLoaded);
+        for (const [id, dates] of Object.entries(achLoaded)) {
+          const n = Array.isArray(dates) ? dates.length : 0;
+          const isSeries = SERIES.some((x) => x.id === id);
+          for (let i = 0; i < (isSeries ? n : Math.min(n, 1)); i++) awardedRef.current.add(`${id}:${i}`);
+        }
+        const earned: Unlock[] = seasonalUnlocks(settled.periods, achLoaded);
+        if (settled.usedOn.length) { const cc = specialUnlock(achLoaded, 'close-call'); if (cc) earned.push(cc); }
+        grant(earned);
       }
     } catch (e) {
       console.error('Could not load saved progress', e);
@@ -242,12 +307,15 @@ export default function FullFitnessTracker() {
       localStorage.setItem('fittrack_save', JSON.stringify({
         currentView, authMode, activeTab, currency, purchasedItems, workoutSets,
         settings, age, weight, maxPushups, experience, avatarConfig, userName,
-        restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history
+        restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history,
+        streak: streakState.streak, bestStreak: streakState.best, streakCursor: streakState.cursor, shields: streakState.shields,
+        lifetime: streakState.lifetime, tallies: streakState.tallies,
+        loginChain, lastLoginClaim, bestLoginChain, pendingReport: dailyReport, ach
       }));
     } catch (e) {
       console.error('Could not save progress', e);
     }
-  }, [isLoaded, currentView, authMode, activeTab, currency, purchasedItems, workoutSets, settings, age, weight, maxPushups, experience, avatarConfig, userName, restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history]);
+  }, [isLoaded, currentView, authMode, activeTab, currency, purchasedItems, workoutSets, settings, age, weight, maxPushups, experience, avatarConfig, userName, restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history, streakState, loginChain, lastLoginClaim, bestLoginChain, dailyReport, ach]);
 
   // RESET BUTTON CONFIRMATION
   const resetProgress = () => {
@@ -291,7 +359,42 @@ export default function FullFitnessTracker() {
     setActiveTab('home');
   };
 
+  // Gives out achievements: each (id, tier) is paid once, even if this runs twice.
+  const grant = (unlocks: Unlock[]) => {
+    const date = todayStr();
+    const fresh = unlocks.filter((u) => {
+      const key = `${u.id}:${u.tier ?? 0}`;
+      if (awardedRef.current.has(key)) return false;
+      awardedRef.current.add(key);
+      return true;
+    });
+    if (!fresh.length) return;
+    setAch((prev) => {
+      const next = { ...prev };
+      fresh.forEach((u) => { next[u.id] = [...(next[u.id] || []), date]; });
+      return next;
+    });
+    setCurrency((c) => c + fresh.reduce((sum, u) => sum + u.gold, 0));
+    const stamp = Date.now();
+    if (fresh.length > 3) {
+      // catching up on lots of unlocks at once: one summary pop-up instead of a long queue
+      setToasts((q) => [...q, { key: `batch-${stamp}`, title: `${fresh.length} achievements unlocked`, gold: fresh.reduce((sum, u) => sum + u.gold, 0), color: '#c084fc' }]);
+    } else {
+      setToasts((q) => [...q, ...fresh.map((u) => ({ key: `${u.id}-${u.tier ?? 0}-${stamp}`, title: u.title, gold: u.gold, color: u.color }))]);
+    }
+  };
+  const grantSpecial = (id: string) => {
+    const u = specialUnlock({}, id);
+    if (u) grant([u]);
+  };
+  const noteTrainingTime = () => {
+    const h = new Date().getHours();
+    if (h >= 4 && h < 7) grantSpecial('early-bird');
+    if (h >= 22 || h < 4) grantSpecial('night-owl');
+  };
+
   const toggleSetCompletion = (exerciseId: number, setIndex: number, totalSetsNeeded: number) => {
+    if (!workoutSets[exerciseId]?.[setIndex]) noteTrainingTime();
     setWorkoutSets(prev => {
       const currentSets = prev[exerciseId]?.length === totalSetsNeeded 
         ? [...prev[exerciseId]] 
@@ -433,8 +536,20 @@ export default function FullFitnessTracker() {
     const cur = [...getSetsArray(w)];
     if (cur[setIndex]) return;
     cur[setIndex] = true;
+    noteTrainingTime();
     setWorkoutSets((prev) => ({ ...prev, [exerciseId]: cur }));
     setCurrency((c) => c + 10);
+  };
+
+  const loginNow = loginStatus(lastLoginClaim, loginChain, todayStr());
+  const claimDailyReward = () => {
+    const ls = loginStatus(lastLoginClaim, loginChain, todayStr());
+    if (ls.claimed) return;
+    setLoginChain(ls.nextChain);
+    setBestLoginChain((b) => Math.max(b, ls.nextChain));
+    setLastLoginClaim(todayStr());
+    setCurrency((c) => c + rewardForChain(ls.nextChain));
+    setDailyReport(null);
   };
 
   const toggleRestDay = (day: number) =>
@@ -450,6 +565,20 @@ export default function FullFitnessTracker() {
   const minuteProgress = Math.min(100, Math.round((minutesActive / MINUTE_GOAL) * 100));
   const dailyTargetPct = Math.min(100, Math.round((calorieProgress + minuteProgress) / 2));
 
+  // a day counts as trained once half of its sets are done
+  const trainedToday = totalSetsToday > 0 && completedSetsToday >= Math.max(1, Math.ceil(totalSetsToday * STREAK_MIN_FRACTION));
+  const displayStreak = streakState.streak + (trainedToday ? 1 : 0);
+  const bestStreakLive = Math.max(streakState.best, displayStreak);
+  const todayStats = (() => {
+    let minutes = 0, reps = 0, hold = 0;
+    workoutData.forEach((w) => {
+      const n = getSetsArray(w).filter(Boolean).length;
+      if (w.kind === 'hold') { hold += n * w.target; minutes += (n * (w.target + profile.restExercise)) / 60; }
+      else { reps += n * w.target; minutes += (n * (w.target * SECONDS_PER_REP + profile.restExercise)) / 60; }
+    });
+    return { minutes: Math.round(minutes * 10) / 10, reps, hold };
+  })();
+
   // status: 0 future, 1 rest day (blue), 2 trained (red), 3 missed, 4 today (not done yet)
   const nowDate = new Date();
   const todayIso = todayStr(nowDate);
@@ -463,7 +592,7 @@ export default function FullFitnessTracker() {
       status = 0;
     } else if (iso === todayIso) {
       power = calorieProgress; time = minuteProgress; discipline = dailyTargetPct;
-      status = completedSetsToday > 0 ? 2 : rest ? 1 : 4;
+      status = trainedToday ? 2 : rest ? 1 : 4;
     } else if (rec) {
       power = rec.power; time = rec.time; discipline = rec.discipline;
       status = rec.trained ? 2 : rest ? 1 : 3;
@@ -485,6 +614,30 @@ export default function FullFitnessTracker() {
   const last7Days = Array.from({ length: 7 }, (_, i) => dayInfo(new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - 6 + i)));
   const selectedInfo = selectedDay ? dayInfo(new Date(selectedDay + 'T00:00:00')) : null;
   const statusLabel = (st: number) => (st === 1 ? 'Rest day' : st === 2 ? 'Trained' : st === 3 ? 'Missed' : st === 4 ? 'Not done yet' : 'Upcoming');
+
+  // achievements: compare lifetime totals + today's progress with every tier threshold
+  const achCtx: AchContext = {
+    lifetime: streakState.lifetime,
+    today: { trained: trainedToday, full: allWorkoutsDone, minutes: todayStats.minutes, reps: todayStats.reps, hold: todayStats.hold },
+    bestStreak: bestStreakLive,
+    bestLogin: bestLoginChain,
+    ageDays: startDate ? Math.max(0, daysBetween(startDate, todayIso)) : 0,
+  };
+  useEffect(() => {
+    if (!isLoaded) return;
+    grant(newTierUnlocks(ach, achCtx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, ach, streakState.lifetime, trainedToday, allWorkoutsDone, todayStats.minutes, todayStats.reps, todayStats.hold, bestStreakLive, bestLoginChain, startDate]);
+
+  // if the app stays open past midnight, start the new day cleanly
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState === 'visible' && workoutDate && todayStr() !== workoutDate) window.location.reload();
+    };
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('focus', check);
+    return () => { document.removeEventListener('visibilitychange', check); window.removeEventListener('focus', check); };
+  }, [workoutDate]);
 
   // Phones: full screen. Bigger screens: the app sits in a phone-shaped frame that is scaled to fit
   // the window (never taller than the screen) and made a bit bigger on touch tablets.
@@ -508,14 +661,17 @@ export default function FullFitnessTracker() {
     const iso = todayStr();
     setHistory((prev) => {
       const cur = prev[iso];
-      const trained = completedSetsToday > 0;
-      if (cur && cur.power === calorieProgress && cur.time === minuteProgress && cur.discipline === dailyTargetPct && cur.trained === trained) return prev;
-      const merged = { ...prev, [iso]: { power: calorieProgress, time: minuteProgress, discipline: dailyTargetPct, trained } };
+      const next: DayRecord = {
+        power: calorieProgress, time: minuteProgress, discipline: dailyTargetPct, trained: trainedToday,
+        sets: completedSetsToday, minutes: todayStats.minutes, reps: todayStats.reps, hold: todayStats.hold, full: allWorkoutsDone,
+      };
+      if (cur && (Object.keys(next) as (keyof DayRecord)[]).every((k) => cur[k] === next[k])) return prev;
+      const merged = { ...prev, [iso]: next };
       const keys = Object.keys(merged).sort();
       if (keys.length > 120) keys.slice(0, keys.length - 120).forEach((k) => delete merged[k]);
       return merged;
     });
-  }, [isLoaded, calorieProgress, minuteProgress, dailyTargetPct, completedSetsToday]);
+  }, [isLoaded, calorieProgress, minuteProgress, dailyTargetPct, completedSetsToday, trainedToday, todayStats.minutes, todayStats.reps, todayStats.hold, allWorkoutsDone]);
 
   useEffect(() => {
     if (isLoaded && allWorkoutsDone && lastCompletedDate !== todayStr()) setLastCompletedDate(todayStr());
@@ -535,6 +691,8 @@ export default function FullFitnessTracker() {
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade { animation: fadeIn 0.4s ease-out forwards; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
         @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
         .scan-overlay { background: linear-gradient(to bottom, transparent 40%, rgba(244, 63, 94, 0.1) 50%, transparent 60%); animation: scanline 3s linear infinite; }
@@ -549,6 +707,16 @@ export default function FullFitnessTracker() {
 
       {/* MOBILE APP FRAME - Fixed height layout implemented here */}
       <div className="w-full max-w-md bg-gray-900 h-[100dvh] sm:h-[850px] sm:rounded-3xl shadow-2xl relative flex flex-col border border-gray-800 overflow-hidden" style={{ zoom: frameScale }}>
+        <AchievementToast toast={currentView === 'dashboard' && !loginNow.claimed ? null : toasts[0] ?? null} onDone={() => setToasts((q) => q.slice(1))} />
+        {currentView === 'dashboard' && !loginNow.claimed && (
+          <DailyRewardModal
+            chain={loginNow.nextChain}
+            reward={rewardForChain(loginNow.nextChain)}
+            workoutStreak={displayStreak}
+            report={dailyReport}
+            onClaim={claimDailyReward}
+          />
+        )}
         {showGuided && (
           <GuidedWorkout
             exercises={playerExercises}
@@ -838,14 +1006,18 @@ export default function FullFitnessTracker() {
                           <Flame className="text-orange-500" size={20} />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm">28 Day Streak</h4>
-                          <p className="text-[10px] text-gray-400">Personal Best: 42 Days</p>
+                          <h4 className="font-bold text-sm">{displayStreak} Day Streak</h4>
+                          {settings.streakAlerts && !trainedToday && !isRestDay ? (
+                            <p className="text-[10px] text-orange-400 font-medium">{displayStreak > 0 ? 'Train today to keep your streak' : 'Train today to start a streak'}</p>
+                          ) : (
+                            <p className="text-[10px] text-gray-400">Best: {bestStreakLive} {bestStreakLive === 1 ? 'day' : 'days'} &middot; next goal {nextMilestone(displayStreak)}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
-                        {purchasedItems.includes('item_1') && (
+                        {streakState.shields > 0 && (
                           <span className="flex items-center space-x-1 text-[9px] font-bold text-blue-400 bg-blue-500/10 px-2 py-1 rounded-lg border border-blue-500/30">
-                            <ShieldCheck size={11} /> <span>Shielded</span>
+                            <ShieldCheck size={11} /> <span>Shield x{streakState.shields}</span>
                           </span>
                         )}
                         <button onClick={() => setActiveTab('calendar')} className="text-xs bg-gray-900 px-3 py-1.5 rounded-lg font-bold hover:bg-gray-700 transition">View Log</button>
@@ -1263,7 +1435,7 @@ export default function FullFitnessTracker() {
                                   {hasAura && <Crown size={12} className="inline text-yellow-400 ml-1 -translate-y-0.5" />}
                                 </h4>
                                 <p className="text-[10px] text-gray-500 flex items-center">
-                                  <Flame size={10} className="text-orange-500 mr-0.5" /> {warrior.streak} Day Streak
+                                  <Flame size={10} className="text-orange-500 mr-0.5" /> {warrior.isMe ? displayStreak : warrior.streak} Day Streak
                                 </p>
                               </div>
                             </div>
@@ -1313,7 +1485,7 @@ export default function FullFitnessTracker() {
 
                                   <div className="bg-gray-950/60 rounded-xl p-3 flex items-center space-x-2">
                                     <Trophy size={14} className="text-yellow-400 shrink-0" />
-                                    <p className="text-xs text-gray-300">{warrior.achievement}</p>
+                                    <p className="text-xs text-gray-300">{warrior.isMe ? (topAchievement(ach) ?? 'No achievements yet') : warrior.achievement}</p>
                                   </div>
                                 </div>
                               ) : (
@@ -1357,7 +1529,10 @@ export default function FullFitnessTracker() {
                   <div className="space-y-4">
                     {shopItems.map((item) => {
                       const ItemIcon = item.icon;
-                      const isOwned = purchasedItems.includes(item.id);
+                      const isShield = item.id === 'item_1';
+                      const isOwned = !isShield && purchasedItems.includes(item.id);
+                      const price = isShield ? SHIELD_PRICE : item.price;
+                      const shieldFull = isShield && streakState.shields >= MAX_SHIELDS;
                       return (
                         <div key={item.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden">
                           <div className="flex items-start space-x-4">
@@ -1371,27 +1546,32 @@ export default function FullFitnessTracker() {
                           </div>
 
                           <div className="mt-4 pt-3 border-t border-gray-800/60 flex items-center justify-between">
-                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Item Grade: Tier 1</span>
-                            {isOwned ? (
+                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{isShield ? `In stock: ${streakState.shields}/${MAX_SHIELDS}` : 'Item Grade: Tier 1'}</span>
+                            {shieldFull ? (
+                              <button disabled className="bg-gray-800 text-gray-500 text-xs px-4 py-2 rounded-xl font-bold border border-gray-700 flex items-center space-x-1">
+                                <Lock size={12} /> <span>Fully stocked</span>
+                              </button>
+                            ) : isOwned ? (
                               <button disabled className="bg-gray-800 text-gray-500 text-xs px-4 py-2 rounded-xl font-bold border border-gray-700 flex items-center space-x-1">
                                 <Lock size={12} /> <span>Equipped</span>
                               </button>
                             ) : (
                               <button 
                                 onClick={() => {
-                                  if (currency >= item.price) {
-                                    setCurrency(c => c - item.price);
-                                    setPurchasedItems(prev => [...prev, item.id]);
+                                  if (currency >= price) {
+                                    setCurrency(c => c - price);
+                                    if (isShield) setStreakState((st) => ({ ...st, shields: Math.min(MAX_SHIELDS, st.shields + 1) }));
+                                    else setPurchasedItems(prev => [...prev, item.id]);
                                   }
                                 }} 
-                                disabled={currency < item.price}
+                                disabled={currency < price}
                                 className={`text-xs px-4 py-2 rounded-xl font-black shadow transition-all ${
-                                  currency >= item.price 
+                                  currency >= price 
                                     ? 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white hover:opacity-90 active:scale-95' 
                                     : 'bg-gray-800 text-gray-600 cursor-not-allowed border border-gray-800'
                                 }`}
                               >
-                                Unlock For {item.price}G
+                                {isShield ? 'Buy Shield' : 'Unlock'} For {price}G
                               </button>
                             )}
                           </div>
@@ -1408,6 +1588,33 @@ export default function FullFitnessTracker() {
                   <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-black">Commander Profile</h2>
                   </div>
+
+                  <div className="flex bg-gray-800 rounded-xl p-1 mb-6" role="tablist">
+                    {([['overview', 'Overview'], ['achievements', 'Achievements']] as const).map(([id, label]) => (
+                      <button
+                        key={id}
+                        role="tab"
+                        aria-selected={profileTab === id}
+                        onClick={() => setProfileTab(id)}
+                        className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors flex items-center justify-center space-x-1.5 ${profileTab === id ? 'bg-gray-950 text-white shadow' : 'text-gray-500'}`}
+                      >
+                        <span>{label}</span>
+                        {id === 'achievements' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300">{countUnlocked(ach).total + countUnlocked(ach).seasonalTotal}</span>}
+                      </button>
+                    ))}
+                  </div>
+
+                  {profileTab === 'achievements' ? (
+                    <AchievementsView
+                      ach={ach}
+                      ctx={achCtx}
+                      year={nowDate.getFullYear()}
+                      month0={nowDate.getMonth()}
+                      tallies={streakState.tallies}
+                      startDate={startDate}
+                    />
+                  ) : (
+                  <>
                   
                   <div className="bg-gray-800 p-5 rounded-2xl border border-gray-700 text-center relative overflow-hidden mb-6">
                     <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-500/10 rounded-full blur-xl"></div>
@@ -1429,30 +1636,9 @@ export default function FullFitnessTracker() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Achievements & Badges</h4>
-                    
-                    <div className="grid grid-cols-1 gap-3">
-                      <div className="flex items-center p-3 bg-gray-900 rounded-xl border border-gray-800">
-                        <div className="text-2xl mr-4 p-2 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
-                          <Timer className="text-yellow-500" size={20} />
-                        </div>
-                        <div>
-                          <h5 className="font-bold text-sm text-yellow-500">8-Year Pushup Mastery</h5>
-                          <p className="text-[10px] text-gray-400">Maintained calisthenics discipline for 8 years.</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center p-3 bg-gray-900 rounded-xl border border-gray-800">
-                        <div className="text-2xl mr-4 p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
-                          <Shield className="text-blue-400" size={20} />
-                        </div>
-                        <div>
-                          <h5 className="font-bold text-sm text-blue-400">Iron Core</h5>
-                          <p className="text-[10px] text-gray-400">Unlocked Advanced Hollow-Body Movements.</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <AchievementPreview ach={ach} onViewAll={() => setProfileTab('achievements')} />
+                  </>
+                  )}
                 </div>
               )}
 
