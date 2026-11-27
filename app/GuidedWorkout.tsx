@@ -384,7 +384,7 @@ export default function GuidedWorkout({ exercises, rounds, done, sound, vibratio
 
               {phase === 'confirm' && (
                 <div className="text-center space-y-3">
-                  <p className="text-sm text-gray-400">Set finished. Did you complete it?</p>
+                  <p className="text-sm text-gray-400">Set finished. Did you complete it? (+10G, +10 XP)</p>
                   <button
                     onClick={() => finishSet(true)}
                     className="w-full py-4 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 font-black tracking-wide shadow-lg shadow-rose-500/20 flex items-center justify-center space-x-2 active:scale-[0.98] transition-transform"
@@ -458,7 +458,7 @@ export default function GuidedWorkout({ exercises, rounds, done, sound, vibratio
             <p className="text-sm text-gray-400 px-6">
               {steps.length === 0
                 ? 'Every set for today is already logged. Come back tomorrow.'
-                : `${loggedCount} set${loggedCount === 1 ? '' : 's'} logged • +${loggedCount * 10}G`}
+                : `${loggedCount} set${loggedCount === 1 ? '' : 's'} logged • +${loggedCount * 10}G • +${loggedCount * 10} XP`}
             </p>
             <button
               onClick={onClose}

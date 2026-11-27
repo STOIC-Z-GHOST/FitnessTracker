@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 import { Trophy } from 'lucide-react';
 
-export interface ToastItem { key: string; title: string; gold: number; color: string }
+export interface ToastItem { key: string; title: string; gold: number; color: string; kicker?: string }
 
 export default function AchievementToast({ toast, onDone }: { toast: ToastItem | null; onDone: () => void }) {
   useEffect(() => {
@@ -24,10 +24,10 @@ export default function AchievementToast({ toast, onDone }: { toast: ToastItem |
           <Trophy size={20} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Achievement unlocked</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{toast.kicker || 'Achievement unlocked'}</p>
           <p className="text-sm font-black truncate">{toast.title}</p>
         </div>
-        <span className="text-sm font-black text-yellow-400 shrink-0">+{toast.gold}G</span>
+        {toast.gold > 0 && <span className="text-sm font-black text-yellow-400 shrink-0">+{toast.gold}G</span>}
       </div>
     </div>
   );

@@ -8,6 +8,10 @@ import {
   AchContext, AchMap, Category, IconKey,
 } from './achievements';
 import type { Tally } from './progress';
+import { RANKS } from './xp';
+
+const RANK_NAMES: string[] = RANKS.map((r) => r.name);
+const RANK_COLORS: string[] = RANKS.map((r) => r.color);
 
 const ICONS: Record<IconKey, React.ComponentType<{ size?: number; className?: string }>> = {
   Flame, Gift, Dumbbell, Swords, Calendar, Zap, Timer, Shield, Crown, Sunrise, Moon, Trophy, Target,
@@ -20,6 +24,7 @@ interface Props {
   month0: number;                       // 0..11 (current month)
   tallies: Record<string, Tally>;
   startDate: string;
+  seasons?: { year: number; finalXp: number; rank: number; place: number; rankGold: number; podiumGold: number }[];
 }
 
 const FILTERS: { id: 'all' | Category; label: string }[] = [
@@ -27,6 +32,7 @@ const FILTERS: { id: 'all' | Category; label: string }[] = [
   { id: 'streak', label: 'Streak' },
   { id: 'workout', label: 'Workouts' },
   { id: 'time', label: 'Time' },
+  { id: 'rank', label: 'Ranks' },
   { id: 'seasonal', label: 'Seasons' },
   { id: 'special', label: 'Special' },
 ];
@@ -93,7 +99,7 @@ export function AchievementPreview({ ach, onViewAll }: { ach: AchMap; onViewAll:
   );
 }
 
-export default function AchievementsView({ ach, ctx, year, month0, tallies, startDate }: Props) {
+export default function AchievementsView({ ach, ctx, year, month0, tallies, startDate, seasons = [] }: Props) {
   const [filter, setFilter] = useState<'all' | Category>('all');
   const counts = countUnlocked(ach);
   const show = (c: Category) => filter === 'all' || filter === c;
@@ -245,6 +251,20 @@ export default function AchievementsView({ ach, ctx, year, month0, tallies, star
             (ach[marathonId(year)] || []).length > 0,
             yearTally ? `${yearTally.done}/${MARATHON_DAYS} days so far` : 'Needs a full year of tracking',
           )}
+          {seasons.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Past seasons</p>
+              {[...seasons].reverse().map((s) => (
+                <div key={s.year} className="rounded-2xl border border-gray-700 bg-gray-800 p-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-bold">{s.year} Season <span style={{ color: RANK_COLORS[s.rank] }}>{RANK_NAMES[s.rank]}</span></p>
+                    <p className="text-[11px] text-gray-400">{s.finalXp.toLocaleString('en-US')} XP &middot; finished #{s.place}</p>
+                  </div>
+                  <span className="text-xs font-black text-yellow-400">+{s.rankGold + s.podiumGold}G</span>
+                </div>
+              ))}
+            </div>
+          )}
           {otherSeasonal.length > 0 && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">Earned in earlier years</p>
@@ -260,11 +280,11 @@ export default function AchievementsView({ ach, ctx, year, month0, tallies, star
         </div>
       )}
 
-      {/* specials */}
-      {show('special') && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-black">Special</h3>
-          {SPECIALS.map((sp) => {
+      {/* ranks, levels and other one-offs */}
+      {(['rank', 'special'] as const).filter((cat) => show(cat)).map((cat) => (
+        <div key={cat} className="space-y-3">
+          <h3 className="text-sm font-black">{cat === 'rank' ? 'Ranks & Levels' : 'Special'}</h3>
+          {SPECIALS.filter((sp) => sp.category === cat).map((sp) => {
             const Icon = ICONS[sp.icon];
             const owned = (ach[sp.id] || []).length > 0;
             return (
@@ -282,7 +302,7 @@ export default function AchievementsView({ ach, ctx, year, month0, tallies, star
             );
           })}
         </div>
-      )}
+      ))}
     </div>
   );
 }

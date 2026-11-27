@@ -13,7 +13,7 @@ export const TIERS = [
 ] as const;
 export const MYTHIC_INDEX = TIERS.length - 1;
 
-export type Category = 'streak' | 'workout' | 'time' | 'seasonal' | 'special';
+export type Category = 'streak' | 'workout' | 'time' | 'rank' | 'seasonal' | 'special';
 export type IconKey = 'Flame' | 'Gift' | 'Dumbbell' | 'Swords' | 'Calendar' | 'Zap' | 'Timer' | 'Shield' | 'Crown' | 'Sunrise' | 'Moon' | 'Trophy' | 'Target';
 
 // what we know about the user, used to measure progress
@@ -23,6 +23,9 @@ export interface AchContext {
   bestStreak: number;
   bestLogin: number;
   ageDays: number;
+  level: number;          // 0..100
+  rankIdx: number;        // -1 = unranked
+  podiums: number;        // weeks finished in the top 3
 }
 
 export const fmtMinutes = (m: number) => {
@@ -103,6 +106,13 @@ export const SERIES: Series[] = [
     show: (n) => fmtMinutes(n),
   },
   {
+    id: 'podiums', name: 'Podium Regular', category: 'rank', icon: 'Trophy',
+    thresholds: [1, 3, 6, 12, 24, 48, 100],
+    value: (c) => c.podiums,
+    goal: (t) => `Finish ${plural(t, 'week')} in the top 3 of the Arena`,
+    show: (n) => plural(Math.floor(n), 'week'),
+  },
+  {
     id: 'veteran', name: 'Veteran', category: 'time', icon: 'Crown',
     thresholds: [7, 30, 100, 200, 365, 730, 1095],
     value: (c) => c.ageDays,
@@ -114,11 +124,43 @@ export const SERIES: Series[] = [
 export const tiersReached = (thresholds: number[], value: number) => thresholds.filter((t) => value >= t).length;
 
 // ---------- one-off specials ----------
-export interface Special { id: string; name: string; desc: string; gold: number; icon: IconKey }
+export interface Special {
+  id: string; name: string; desc: string; gold: number; icon: IconKey;
+  category: 'special' | 'rank';
+  check?: (c: AchContext) => boolean;   // unlocks by itself when true (otherwise it is awarded by an event)
+}
+// level milestones: gold on the way to level 100
+export const LEVEL_MILESTONES = [
+  { level: 20, gold: 300 },
+  { level: 40, gold: 600 },
+  { level: 60, gold: 1000 },
+  { level: 80, gold: 1500 },
+  { level: 100, gold: 3000 },
+] as const;
+
+// one achievement per rank (index 0 = Recruit)
+export const RANK_ACHIEVEMENTS = [
+  { name: 'Enter the Arena', desc: 'Earn your first XP and join the leaderboard', gold: 25 },
+  { name: 'Warrior', desc: 'Reach the Warrior rank', gold: 75 },
+  { name: 'Gladiator', desc: 'Reach the Gladiator rank', gold: 150 },
+  { name: 'Champion', desc: 'Reach the Champion rank', gold: 300 },
+  { name: 'Overlord', desc: 'Reach the Overlord rank', gold: 600 },
+  { name: 'Mythic', desc: 'Reach the Mythic rank', gold: 1000 },
+] as const;
+
+export const TOP3_GOLD = [300, 200, 100] as const; // weekly Arena prize for 1st, 2nd, 3rd
+
 export const SPECIALS: Special[] = [
-  { id: 'early-bird', name: 'Early Bird', desc: 'Log a set before 7 AM', gold: 50, icon: 'Sunrise' },
-  { id: 'night-owl', name: 'Night Owl', desc: 'Log a set after 10 PM', gold: 50, icon: 'Moon' },
-  { id: 'close-call', name: 'Close Call', desc: 'Let a Streak Shield save your streak', gold: 75, icon: 'Shield' },
+  { id: 'early-bird', name: 'Early Bird', desc: 'Log a set before 7 AM', gold: 50, icon: 'Sunrise', category: 'special' },
+  { id: 'night-owl', name: 'Night Owl', desc: 'Log a set after 10 PM', gold: 50, icon: 'Moon', category: 'special' },
+  { id: 'close-call', name: 'Close Call', desc: 'Let a Streak Shield save your streak', gold: 75, icon: 'Shield', category: 'special' },
+  { id: 'podium', name: 'Podium Finish', desc: 'Finish a week in the top 3 of the Arena', gold: 100, icon: 'Trophy', category: 'rank' },
+  { id: 'arena-champion', name: 'Arena Champion', desc: 'Finish a week at #1 in the Arena', gold: 250, icon: 'Crown', category: 'rank' },
+  { id: 'season-survivor', name: 'Season Survivor', desc: 'Come through a yearly reset with a rank', gold: 200, icon: 'Shield', category: 'rank' },
+  { id: 'season-podium', name: 'Season Podium', desc: 'Finish a whole season in the top 3', gold: 500, icon: 'Trophy', category: 'rank' },
+  { id: 'season-champion', name: 'Season Champion', desc: 'Finish a whole season at #1', gold: 1500, icon: 'Crown', category: 'rank' },
+  ...RANK_ACHIEVEMENTS.map((r, i): Special => ({ id: `rank-${i}`, name: r.name, desc: r.desc, gold: r.gold, icon: i === 0 ? 'Target' : 'Crown', category: 'rank', check: (c) => c.rankIdx >= i })),
+  ...LEVEL_MILESTONES.map((m): Special => ({ id: `level-${m.level}`, name: `Level ${m.level}`, desc: `Reach level ${m.level}`, gold: m.gold, icon: 'Zap', category: 'rank', check: (c) => c.level >= m.level })),
 ];
 
 // ---------- monthly / yearly ----------
@@ -158,6 +200,16 @@ export function newTierUnlocks(ach: AchMap, ctx: AchContext): Unlock[] {
     for (let t = have; t < reached; t++) {
       out.push({ id: s.id, tier: t, title: `${s.name}: ${TIERS[t].name}`, gold: TIERS[t].gold, color: TIERS[t].color, icon: s.icon });
     }
+  }
+  return out;
+}
+
+// level milestones and rank achievements that are earned just by reaching them
+export function newSpecialUnlocks(ach: AchMap, ctx: AchContext): Unlock[] {
+  const out: Unlock[] = [];
+  for (const sp of SPECIALS) {
+    if (!sp.check || (ach[sp.id] && ach[sp.id].length)) continue;
+    if (sp.check(ctx)) out.push({ id: sp.id, title: sp.name, gold: sp.gold, color: '#fbbf24', icon: sp.icon });
   }
   return out;
 }

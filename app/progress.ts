@@ -2,6 +2,7 @@
 // Everything here is plain functions on plain data so it is easy to test.
 
 import { todayStr, daysBetween } from './workoutPlan';
+import { rankIndex, resetXp } from './xp';
 
 // A day counts as "trained" when at least this share of the day's sets is done.
 export const STREAK_MIN_FRACTION = 0.5;
@@ -21,7 +22,7 @@ export const addDays = (iso: string, n: number) => {
 };
 
 const weekdayOf = (iso: string) => new Date(iso + 'T00:00:00').getDay(); // 0 = Sunday
-const mondayOf = (iso: string) => addDays(iso, -((weekdayOf(iso) + 6) % 7));
+export const mondayOf = (iso: string) => addDays(iso, -((weekdayOf(iso) + 6) % 7));
 
 // ---------- what we remember about each finished day ----------
 export interface DayRecord {
@@ -34,6 +35,7 @@ export interface DayRecord {
   reps?: number;
   hold?: number;      // plank seconds
   full?: boolean;     // every set of the day done
+  xp?: number;        // XP earned that day
 }
 
 export interface Lifetime {
@@ -44,8 +46,9 @@ export interface Lifetime {
   hold: number;         // plank seconds
   perfectWeeks: number;
   shieldsUsed: number;
+  xp: number;           // lifetime XP (days before today)
 }
-export const EMPTY_LIFETIME: Lifetime = { days: 0, full: 0, minutes: 0, reps: 0, hold: 0, perfectWeeks: 0, shieldsUsed: 0 };
+export const EMPTY_LIFETIME: Lifetime = { days: 0, full: 0, minutes: 0, reps: 0, hold: 0, perfectWeeks: 0, shieldsUsed: 0, xp: 0 };
 
 export interface Tally { sched: number; done: number }
 
@@ -56,9 +59,19 @@ export interface ProgressState {
   shields: number;
   lifetime: Lifetime;
   tallies: Record<string, Tally>;    // 'W:2026-11-16' | 'M:2026-11' | 'Y:2026'
+  seasonXp: Record<string, number>;  // XP earned in each season (calendar year), days before today
+  seasonBase?: Record<string, number>; // XP a season STARTS with after the yearly rank drop
 }
 
 export interface PeriodResult { kind: 'W' | 'M' | 'Y'; key: string; sched: number; done: number }
+
+export interface WeekEnd { weekStart: string; endIso: string; seasonXp: number }
+
+export interface SeasonEnd { year: number; finalXp: number; rank: number }
+
+// season XP = what the season started with + what was earned in it
+export const seasonTotal = (s: { seasonXp: Record<string, number>; seasonBase?: Record<string, number> }, year: string | number) =>
+  ((s.seasonBase || {})[String(year)] || 0) + (s.seasonXp[String(year)] || 0);
 
 export interface SettleResult {
   state: ProgressState;
@@ -66,6 +79,8 @@ export interface SettleResult {
   lost: boolean;
   lostStreak: number;     // length of the streak that ended (0 if none)
   periods: PeriodResult[];
+  weekEnds: WeekEnd[];    // weeks that finished during this walk, with your season XP at that point
+  seasonEnds: SeasonEnd[]; // seasons (years) that finished during this walk
 }
 
 // Walk every day after `cursor` up to (not including) today.
@@ -80,9 +95,13 @@ export function settleStreak(
     ...input,
     lifetime: { ...input.lifetime },
     tallies: Object.fromEntries(Object.entries(input.tallies).map(([k, v]) => [k, { ...v }])),
+    seasonXp: { ...(input.seasonXp || {}) },
+    seasonBase: { ...(input.seasonBase || {}) },
   };
   const usedOn: string[] = [];
   const periods: PeriodResult[] = [];
+  const weekEnds: WeekEnd[] = [];
+  const seasonEnds: SeasonEnd[] = [];
   let lost = false;
   let lostStreak = 0;
 
@@ -106,6 +125,11 @@ export function settleStreak(
       s.lifetime.minutes += rec.minutes || 0;
       s.lifetime.reps += rec.reps || 0;
       s.lifetime.hold += rec.hold || 0;
+      if (rec.xp) {
+        s.lifetime.xp += rec.xp;
+        const yr = d.slice(0, 4);
+        s.seasonXp[yr] = (s.seasonXp[yr] || 0) + rec.xp;
+      }
       if (trained) s.lifetime.days += 1;
       if (rec.full) s.lifetime.full += 1;
     }
@@ -132,7 +156,10 @@ export function settleStreak(
 
     const next = addDays(d, 1);
     const closing: ('W' | 'M' | 'Y')[] = [];
-    if (weekdayOf(d) === 0) closing.push('W');                 // Sunday ends the week
+    if (weekdayOf(d) === 0) {                                  // Sunday ends the week
+      closing.push('W');
+      weekEnds.push({ weekStart: mondayOf(d), endIso: next, seasonXp: seasonTotal(s, d.slice(0, 4)) });
+    }
     if (next.slice(8) === '01') closing.push('M');             // last day of month
     if (next.slice(5) === '01-01') closing.push('Y');          // Dec 31
     for (const kind of closing) {
@@ -145,6 +172,12 @@ export function settleStreak(
         delete s.tallies[key];
       }
     }
+    if (next.slice(5) === '01-01') {                            // Dec 31: the season is over
+      const year = Number(d.slice(0, 4));
+      const finalXp = seasonTotal(s, year);
+      seasonEnds.push({ year, finalXp, rank: rankIndex(finalXp) });
+      s.seasonBase![String(year + 1)] = resetXp(finalXp);       // everyone drops 3 ranks
+    }
     s.cursor = d;
     d = next;
   }
@@ -152,7 +185,7 @@ export function settleStreak(
   const yesterday = addDays(today, -1);
   if (s.cursor < yesterday) s.cursor = yesterday;
 
-  return { state: s, usedOn, lost, lostStreak, periods };
+  return { state: s, usedOn, lost, lostStreak, periods, weekEnds, seasonEnds };
 }
 
 // ---------- daily login reward ----------

@@ -40,13 +40,20 @@ import GuidedWorkout, { PlayerExercise } from './GuidedWorkout';
 import DailyRewardModal, { DailyReport } from './DailyRewardModal';
 import AchievementsView, { AchievementPreview } from './AchievementsView';
 import AchievementToast, { ToastItem } from './AchievementToast';
+import { dayXp, levelProgress, rankIndex, rankName, rankColor, rankProgress, RANKS, fmtXp, SEASON_RANK_GOLD, SEASON_PODIUM_GOLD } from './xp';
+import { RIVALS, rivalXp, rivalXpBefore, refreshIn } from './rivals';
+import QuestsCard from './QuestsCard';
 import {
-  SERIES, topAchievement, newTierUnlocks, specialUnlock, seasonalUnlocks, countUnlocked,
+  pickDaily, pickWeekly, weekKeyOf, buildRows, dailyMetrics, weeklyMetrics, dailyResetIn, weeklyResetIn,
+  QuestPlan, QuestRow, DayStats,
+} from './quests';
+import {
+  SERIES, topAchievement, newTierUnlocks, newSpecialUnlocks, specialUnlock, seasonalUnlocks, countUnlocked, TOP3_GOLD,
   AchContext, AchMap, Unlock,
 } from './achievements';
 import {
   STREAK_MIN_FRACTION, MAX_SHIELDS, SHIELD_PRICE, rewardForChain, settleStreak, loginStatus, addDays,
-  EMPTY_LIFETIME, nextMilestone, DayRecord, ProgressState,
+  EMPTY_LIFETIME, nextMilestone, seasonTotal, DayRecord, ProgressState,
 } from './progress';
 import {
   MAX_SETS, MAX_EXTRA_SETS, SETS_PER_LEVEL_UP, MAX_REST_DAYS, WEEKDAY_LABELS, WEEKDAY_NAMES,
@@ -92,13 +99,6 @@ function AvatarGlyph({ config, size = 20 }: { config: { type: string; icon: stri
 
 // --- DATA MOVED OUTSIDE COMPONENT ---
 // Static data that doesn't change can live outside to make the app faster
-const leaderboardData = [
-  { rank: 1, name: "Vanguard_Overlord", xp: "142,050", streak: 120, avatarColor: "from-yellow-400 to-amber-600", isMe: false, title: "Overlord", statsVisible: true, achievement: "Iron Will — 120 Day Unbroken Streak", power: 92, time: 88, discipline: 95, weekPattern: [70, 85, 60, 95, 100, 80, 90] },
-  { rank: 2, name: "SleeperBuildPro", xp: "128,400", streak: 84, avatarColor: "from-purple-500 to-indigo-600", isMe: false, title: "Sleeper Build", statsVisible: true, achievement: "Diamond Push-Up Mastery", power: 80, time: 75, discipline: 85, weekPattern: [60, 70, 90, 50, 80, 95, 70] },
-  { rank: 3, name: "CalisthenicsKing", xp: "115,900", streak: 56, avatarColor: "from-cyan-400 to-blue-600", isMe: false, title: "Calisthenics King", statsVisible: true, achievement: "Hollow Body Specialist", power: 70, time: 65, discipline: 78, weekPattern: [50, 60, 70, 65, 80, 55, 75] },
-  { rank: 4, name: "You", xp: "98,350", streak: 28, avatarColor: "from-rose-500 to-purple-600", isMe: true, title: "Overlord", statsVisible: true, achievement: "8-Year Pushup Mastery", power: 0, time: 0, discipline: 0, weekPattern: [] },
-  { rank: 5, name: "HollowBodyWarrior", xp: "84,100", streak: 19, avatarColor: "from-emerald-400 to-teal-600", isMe: false, title: "Rising Star", statsVisible: false, achievement: "Most Improved Warrior", power: 55, time: 60, discipline: 50, weekPattern: [40, 55, 30, 60, 45, 50, 35] },
-];
 
 const shopItems = [
   { id: 'item_1', name: 'Streak Shield', price: 400, desc: 'Protects your workout streak when you miss a training day. One shield is used per missed day. Hold up to 3.', icon: Flame, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
@@ -152,7 +152,7 @@ export default function FullFitnessTracker() {
   
   // App States
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null);
-  const [expandedProfile, setExpandedProfile] = useState<number | null>(null);
+  const [expandedProfile, setExpandedProfile] = useState<string | null>(null);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [currency, setCurrency] = useState<number>(350);
   const [purchasedItems, setPurchasedItems] = useState<string[]>(['item_2']);
@@ -188,12 +188,20 @@ export default function FullFitnessTracker() {
   const [frameScale, setFrameScale] = useState(1);
   const [startDate, setStartDate] = useState<string>('');
   const [history, setHistory] = useState<Record<string, DayRecord>>({});
-  const [streakState, setStreakState] = useState<ProgressState>({ streak: 0, best: 0, cursor: '', shields: 0, lifetime: { ...EMPTY_LIFETIME }, tallies: {} });
+  const [streakState, setStreakState] = useState<ProgressState>({ streak: 0, best: 0, cursor: '', shields: 0, lifetime: { ...EMPTY_LIFETIME }, tallies: {}, seasonXp: {} });
   const [loginChain, setLoginChain] = useState(0);
   const [lastLoginClaim, setLastLoginClaim] = useState('');
   const [bestLoginChain, setBestLoginChain] = useState(0);
   const [dailyReport, setDailyReport] = useState<DailyReport | null>(null);
+  const [seenLevel, setSeenLevel] = useState(0);
+  const [questClaims, setQuestClaims] = useState<{ dayKey: string; weekKey: string; daily: string[]; weekly: string[] }>({ dayKey: '', weekKey: '', daily: [], weekly: [] });
+  const [bonusXp, setBonusXp] = useState<{ date: string; xp: number }>({ date: '', xp: 0 });
+  const questClaimRef = useRef<Set<string>>(new Set());
+  const [seenRank, setSeenRank] = useState(-1);
+  const [, setTick] = useState(0); // re-render every minute so the arena keeps moving
   const [ach, setAch] = useState<AchMap>({});
+  const [arena, setArena] = useState<{ podiums: number; results: { week: string; place: number; gold: number }[] }>({ podiums: 0, results: [] });
+  const [seasons, setSeasons] = useState<{ year: number; finalXp: number; rank: number; place: number; rankGold: number; podiumGold: number }[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [profileTab, setProfileTab] = useState<'overview' | 'achievements'>('overview');
   const awardedRef = useRef<Set<string>>(new Set());
@@ -262,6 +270,8 @@ export default function FullFitnessTracker() {
           shields: typeof d.shields === 'number' ? d.shields : legacyShield,
           lifetime: { ...EMPTY_LIFETIME, ...(d.lifetime || {}) },
           tallies: d.tallies && typeof d.tallies === 'object' ? d.tallies : {},
+          seasonXp: d.seasonXp && typeof d.seasonXp === 'object' ? d.seasonXp : {},
+          seasonBase: d.seasonBase && typeof d.seasonBase === 'object' ? d.seasonBase : {},
         };
         const settled = settleStreak(base, today, rdays, hist, startD);
         setStreakState(settled.state);
@@ -272,6 +282,13 @@ export default function FullFitnessTracker() {
         setLoginChain(chain);
         setLastLoginClaim(claim);
         setBestLoginChain(num(d.bestLoginChain));
+        setSeenLevel(num(d.seenLevel));
+        if (d.questClaims && typeof d.questClaims === 'object') {
+          const qc = d.questClaims;
+          setQuestClaims({ dayKey: String(qc.dayKey || ''), weekKey: String(qc.weekKey || ''), daily: Array.isArray(qc.daily) ? qc.daily : [], weekly: Array.isArray(qc.weekly) ? qc.weekly : [] });
+        }
+        if (d.bonusXp && typeof d.bonusXp === 'object') setBonusXp({ date: String(d.bonusXp.date || ''), xp: num(d.bonusXp.xp) });
+        setSeenRank(typeof d.seenRank === 'number' ? d.seenRank : -1);
         const fresh: DailyReport = { shieldsUsed: settled.usedOn.length, lost: settled.lost, lostStreak: settled.lostStreak, chainReset: ls.reset };
         const carried: DailyReport | null = d.pendingReport && typeof d.pendingReport === 'object' ? d.pendingReport : null;
         const merged: DailyReport = {
@@ -293,6 +310,46 @@ export default function FullFitnessTracker() {
         const earned: Unlock[] = seasonalUnlocks(settled.periods, achLoaded);
         if (settled.usedOn.length) { const cc = specialUnlock(achLoaded, 'close-call'); if (cc) earned.push(cc); }
         grant(earned);
+
+        // ---- weekly Arena prizes: top 3 when a week ended ----
+        const arenaSaved = d.arena && typeof d.arena === 'object' ? d.arena : {};
+        let podiums = num(arenaSaved.podiums);
+        const results: { week: string; place: number; gold: number }[] = Array.isArray(arenaSaved.results) ? arenaSaved.results : [];
+        let prizeGold = 0;
+        const prizeToasts: ToastItem[] = [];
+        const prizeUnlocks: Unlock[] = [];
+        for (const w of settled.weekEnds) {
+          if (w.seasonXp <= 0 || w.endIso <= startD) continue; // not on the board that week
+          const place = RIVALS.filter((r) => rivalXpBefore(r, startD, w.endIso) > w.seasonXp).length + 1;
+          const gold = place <= 3 ? TOP3_GOLD[place - 1] : 0;
+          results.push({ week: w.weekStart, place, gold });
+          if (place <= 3) {
+            podiums += 1;
+            prizeGold += gold;
+            prizeToasts.push({ key: `arena-${w.weekStart}-${Date.now()}`, kicker: 'Arena prize', title: `Week ended: you finished #${place}`, gold, color: place === 1 ? '#fbbf24' : place === 2 ? '#cbd5e1' : '#cd7f32' });
+            const pu = specialUnlock(achLoaded, 'podium'); if (pu) prizeUnlocks.push(pu);
+            if (place === 1) { const cu = specialUnlock(achLoaded, 'arena-champion'); if (cu) prizeUnlocks.push(cu); }
+          }
+        }
+        // ---- season ended (Dec 31): rewards for the rank you finished with, plus the final podium ----
+        const seasonRecs: { year: number; finalXp: number; rank: number; place: number; rankGold: number; podiumGold: number }[] = Array.isArray(d.seasons) ? d.seasons : [];
+        for (const se of settled.seasonEnds) {
+          if (se.finalXp <= 0 || se.rank < 0) continue;
+          const place = RIVALS.filter((r) => rivalXpBefore(r, startD, `${se.year + 1}-01-01`) > se.finalXp).length + 1;
+          const rankGold = SEASON_RANK_GOLD[se.rank];
+          const podiumGold = place <= 3 ? SEASON_PODIUM_GOLD[place - 1] : 0;
+          seasonRecs.push({ year: se.year, finalXp: se.finalXp, rank: se.rank, place, rankGold, podiumGold });
+          prizeGold += rankGold + podiumGold;
+          prizeToasts.push({ key: `season-${se.year}-${Date.now()}`, kicker: 'Season ended', title: `${se.year}: ${rankName(se.rank)}${place <= 3 ? ` &bull; finished #${place}` : ''}`.replace('&bull;', '\u2022'), gold: rankGold + podiumGold, color: rankColor(se.rank) });
+          const su = specialUnlock(achLoaded, 'season-survivor'); if (su) prizeUnlocks.push(su);
+          if (place <= 3) { const sp = specialUnlock(achLoaded, 'season-podium'); if (sp) prizeUnlocks.push(sp); }
+          if (place === 1) { const sc = specialUnlock(achLoaded, 'season-champion'); if (sc) prizeUnlocks.push(sc); }
+        }
+        setSeasons(seasonRecs.slice(-10));
+        setArena({ podiums, results: results.slice(-20) });
+        if (prizeGold > 0) setCurrency((c) => c + prizeGold);
+        if (prizeToasts.length) setToasts((q) => [...q, ...prizeToasts]);
+        grant(prizeUnlocks);
       }
     } catch (e) {
       console.error('Could not load saved progress', e);
@@ -310,12 +367,13 @@ export default function FullFitnessTracker() {
         restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history,
         streak: streakState.streak, bestStreak: streakState.best, streakCursor: streakState.cursor, shields: streakState.shields,
         lifetime: streakState.lifetime, tallies: streakState.tallies,
-        loginChain, lastLoginClaim, bestLoginChain, pendingReport: dailyReport, ach
+        loginChain, lastLoginClaim, bestLoginChain, pendingReport: dailyReport, ach,
+        seasonXp: streakState.seasonXp, seenLevel, seenRank, questClaims, bonusXp, arena, seasons, seasonBase: streakState.seasonBase
       }));
     } catch (e) {
       console.error('Could not save progress', e);
     }
-  }, [isLoaded, currentView, authMode, activeTab, currency, purchasedItems, workoutSets, settings, age, weight, maxPushups, experience, avatarConfig, userName, restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history, streakState, loginChain, lastLoginClaim, bestLoginChain, dailyReport, ach]);
+  }, [isLoaded, currentView, authMode, activeTab, currency, purchasedItems, workoutSets, settings, age, weight, maxPushups, experience, avatarConfig, userName, restDays, progressEvery, extraSets, lastProgressDate, lastCompletedDate, workoutDate, startDate, history, streakState, loginChain, lastLoginClaim, bestLoginChain, dailyReport, ach, seenLevel, seenRank, questClaims, bonusXp, arena, seasons]);
 
   // RESET BUTTON CONFIRMATION
   const resetProgress = () => {
@@ -569,6 +627,13 @@ export default function FullFitnessTracker() {
   const trainedToday = totalSetsToday > 0 && completedSetsToday >= Math.max(1, Math.ceil(totalSetsToday * STREAK_MIN_FRACTION));
   const displayStreak = streakState.streak + (trainedToday ? 1 : 0);
   const bestStreakLive = Math.max(streakState.best, displayStreak);
+  const bonusToday = bonusXp.date === todayStr() ? bonusXp.xp : 0; // XP from quests claimed today
+  const todayXp = dayXp(completedSetsToday, allWorkoutsDone, trainedToday, displayStreak) + bonusToday;
+  const totalXp = streakState.lifetime.xp + todayXp;
+  const seasonXpNow = seasonTotal(streakState, new Date().getFullYear()) + todayXp;
+  const lvl = levelProgress(totalXp);
+  const myRankIdx = rankIndex(seasonXpNow);
+  const myRank = rankProgress(seasonXpNow);
   const todayStats = (() => {
     let minutes = 0, reps = 0, hold = 0;
     workoutData.forEach((w) => {
@@ -621,13 +686,80 @@ export default function FullFitnessTracker() {
     today: { trained: trainedToday, full: allWorkoutsDone, minutes: todayStats.minutes, reps: todayStats.reps, hold: todayStats.hold },
     bestStreak: bestStreakLive,
     bestLogin: bestLoginChain,
+    level: lvl.level,
+    rankIdx: myRankIdx,
+    podiums: arena.podiums,
     ageDays: startDate ? Math.max(0, daysBetween(startDate, todayIso)) : 0,
   };
   useEffect(() => {
     if (!isLoaded) return;
     grant(newTierUnlocks(ach, achCtx));
+    grant(newSpecialUnlocks(ach, achCtx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, ach, streakState.lifetime, trainedToday, allWorkoutsDone, todayStats.minutes, todayStats.reps, todayStats.hold, bestStreakLive, bestLoginChain, startDate]);
+  }, [isLoaded, ach, streakState.lifetime, trainedToday, allWorkoutsDone, todayStats.minutes, todayStats.reps, todayStats.hold, bestStreakLive, bestLoginChain, startDate, lvl.level, myRankIdx, arena.podiums]);
+
+  // level-up and rank-up pop-ups (one per jump, even if several levels were gained)
+  useEffect(() => {
+    if (!isLoaded) return;
+    const pop: ToastItem[] = [];
+    const stamp = Date.now();
+    if (lvl.level > seenLevel) pop.push({ key: `lvl-${lvl.level}-${stamp}`, kicker: 'Level up', title: `Level ${lvl.level} reached`, gold: 0, color: '#c084fc' });
+    if (myRankIdx > seenRank) pop.push({ key: `rank-${myRankIdx}-${stamp}`, kicker: 'Rank up', title: rankName(myRankIdx), gold: 0, color: rankColor(myRankIdx) });
+    if (lvl.level !== seenLevel) setSeenLevel(lvl.level);
+    if (myRankIdx !== seenRank) setSeenRank(myRankIdx);
+    if (pop.length) setToasts((q) => [...q, ...pop]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, lvl.level, myRankIdx]);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  // The arena: simulated rivals plus you. You only appear once you have XP this season.
+  const arenaNow = new Date();
+  const board = (() => {
+    const rows = RIVALS.map((r) => ({ ...r, key: r.id, isMe: false, xpNum: rivalXp(r, startDate || todayIso, arenaNow) }));
+    const me = {
+      id: 'me', key: 'me', name: 'You', avatarColor: 'from-rose-500 to-purple-600', title: rankName(myRankIdx), achievement: '',
+      streak: displayStreak, head: 0, rate: 0, rest: 0, power: 0, time: 0, discipline: 0, weekPattern: [] as number[], statsVisible: true,
+      isMe: true, xpNum: seasonXpNow,
+    };
+    const ranked = [...rows, ...(seasonXpNow > 0 ? [me] : [])].sort((a, b) => b.xpNum - a.xpNum);
+    const out = ranked.map((w, i) => ({ ...w, rank: i + 1 }));
+    if (seasonXpNow <= 0) out.push({ ...me, rank: 0 });
+    return out;
+  })();
+
+  // ---- quests ----
+  const questPlan: QuestPlan = {
+    totalSets: totalSetsToday,
+    setsPerExercise: planSets,
+    exercises: workoutData.length,
+    repsPerRound: workoutData.filter((w) => w.kind === 'reps').reduce((sum, w) => sum + w.target, 0),
+    plankSeconds: workoutData.find((w) => w.kind === 'hold')?.target ?? 30,
+    plannedMinutes: estimateMinutes(playerExercises, planSets, 0, profile.restExercise, profile.restRound),
+    scheduledDays: Math.max(1, 7 - restDays.length),
+  };
+  const roundsToday = Math.min(...workoutData.map((w) => getSetsArray(w).filter(Boolean).length));
+  const todayDay: DayStats = { trained: trainedToday, full: allWorkoutsDone, sets: completedSetsToday, reps: todayStats.reps, hold: todayStats.hold, minutes: todayStats.minutes };
+  const thisWeek = weekKeyOf(todayIso);
+  const dailyRows = buildRows(pickDaily(todayIso), questPlan, dailyMetrics(todayDay, roundsToday), questClaims.dayKey === todayIso ? questClaims.daily : []);
+  const weeklyRows = buildRows(pickWeekly(thisWeek), questPlan, weeklyMetrics(todayIso, { ...history, [todayIso]: todayDay }), questClaims.weekKey === thisWeek ? questClaims.weekly : []);
+  const claimQuest = (row: QuestRow) => {
+    const kind = row.def.kind;
+    const guard = `${kind}:${row.def.id}:${kind === 'daily' ? todayIso : thisWeek}`;
+    if (!row.done || row.claimed || questClaimRef.current.has(guard)) return;
+    questClaimRef.current.add(guard);
+    setQuestClaims((prev) => {
+      const daily = prev.dayKey === todayIso ? prev.daily : [];
+      const weekly = prev.weekKey === thisWeek ? prev.weekly : [];
+      return { dayKey: todayIso, weekKey: thisWeek, daily: kind === 'daily' ? [...daily, row.def.id] : daily, weekly: kind === 'weekly' ? [...weekly, row.def.id] : weekly };
+    });
+    setBonusXp((prev) => ({ date: todayIso, xp: (prev.date === todayIso ? prev.xp : 0) + row.def.xp }));
+    setCurrency((c) => c + row.def.gold);
+    setToasts((q) => [...q, { key: `quest-${row.def.id}-${Date.now()}`, kicker: 'Quest complete', title: `${row.def.title} +${row.def.xp} XP`, gold: row.def.gold, color: '#34d399' }]);
+  };
 
   // if the app stays open past midnight, start the new day cleanly
   useEffect(() => {
@@ -663,7 +795,7 @@ export default function FullFitnessTracker() {
       const cur = prev[iso];
       const next: DayRecord = {
         power: calorieProgress, time: minuteProgress, discipline: dailyTargetPct, trained: trainedToday,
-        sets: completedSetsToday, minutes: todayStats.minutes, reps: todayStats.reps, hold: todayStats.hold, full: allWorkoutsDone,
+        sets: completedSetsToday, minutes: todayStats.minutes, reps: todayStats.reps, hold: todayStats.hold, full: allWorkoutsDone, xp: todayXp,
       };
       if (cur && (Object.keys(next) as (keyof DayRecord)[]).every((k) => cur[k] === next[k])) return prev;
       const merged = { ...prev, [iso]: next };
@@ -671,7 +803,7 @@ export default function FullFitnessTracker() {
       if (keys.length > 120) keys.slice(0, keys.length - 120).forEach((k) => delete merged[k]);
       return merged;
     });
-  }, [isLoaded, calorieProgress, minuteProgress, dailyTargetPct, completedSetsToday, trainedToday, todayStats.minutes, todayStats.reps, todayStats.hold, allWorkoutsDone]);
+  }, [isLoaded, calorieProgress, minuteProgress, dailyTargetPct, completedSetsToday, trainedToday, todayStats.minutes, todayStats.reps, todayStats.hold, allWorkoutsDone, todayXp]);
 
   useEffect(() => {
     if (isLoaded && allWorkoutsDone && lastCompletedDate !== todayStr()) setLastCompletedDate(todayStr());
@@ -965,6 +1097,7 @@ export default function FullFitnessTracker() {
                       <div>
                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Welcome back,</p>
                         <h1 className="text-2xl font-black text-white">{userName || 'Warrior'}</h1>
+                        <p className="text-[11px] font-bold mt-0.5" style={{ color: rankColor(myRankIdx) }}>Level {lvl.level} &bull; {rankName(myRankIdx)}</p>
                       </div>
                       <div className="bg-gray-950 px-3 py-1.5 rounded-xl border border-gray-800 flex items-center space-x-1.5">
                         <Sparkles size={14} className="text-yellow-400 animate-pulse" />
@@ -1035,6 +1168,14 @@ export default function FullFitnessTracker() {
                       </div>
                       {allWorkoutsDone ? <Trophy size={24} /> : <ChevronRight size={24} className="group-hover:translate-x-1 transition-transform" />}
                     </button>
+
+                    <QuestsCard
+                      daily={dailyRows}
+                      weekly={weeklyRows}
+                      dailyReset={dailyResetIn(arenaNow)}
+                      weeklyReset={weeklyResetIn(arenaNow)}
+                      onClaim={claimQuest}
+                    />
                   </div>
                 </div>
               )}
@@ -1389,15 +1530,29 @@ export default function FullFitnessTracker() {
                   <div className="flex justify-between items-center mb-6">
                     <div>
                       <h2 className="text-2xl font-black">Global Arena</h2>
-                      <p className="text-sm text-gray-400">Ranks refresh in 4h 12m</p>
+                      <p className="text-sm text-gray-400">Ranks refresh in {refreshIn(arenaNow)}</p>
                     </div>
                     <Trophy size={24} className="text-yellow-500 animate-bounce" />
                   </div>
 
                   <div className="space-y-3">
-                    {leaderboardData.map((warrior) => {
+                    <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-400">Weekly prizes</p>
+                        <p className="text-[11px] text-gray-400">Top 3 when the week ends win {TOP3_GOLD[0]} / {TOP3_GOLD[1]} / {TOP3_GOLD[2]}G</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-[10px] text-gray-500 font-mono">Ends in {weeklyResetIn(arenaNow)}</p>
+                        <p className="text-[10px] text-gray-500">Season {arenaNow.getFullYear()} ends in {daysBetween(todayIso, `${arenaNow.getFullYear() + 1}-01-01`)}d</p>
+                        {seasonXpNow <= 0 ? (                          <p className="text-[10px] text-gray-400">Earn XP to enter</p>
+                        ) : arena.results.length > 0 ? (
+                          <p className="text-[10px] font-bold text-gray-300">Last week: #{arena.results[arena.results.length - 1].place}{arena.results[arena.results.length - 1].gold > 0 ? ` +${arena.results[arena.results.length - 1].gold}G` : ''}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                    {board.map((warrior) => {
                       const hasAura = warrior.isMe && purchasedItems.includes('item_3');
-                      const isExpanded = expandedProfile === warrior.rank;
+                      const isExpanded = expandedProfile === warrior.key;
                       const isVisible = warrior.isMe ? settings.leaderboardVisible : warrior.statsVisible;
                       const dPower = warrior.isMe ? calorieProgress : warrior.power;
                       const dTime = warrior.isMe ? minuteProgress : warrior.time;
@@ -1406,7 +1561,7 @@ export default function FullFitnessTracker() {
 
                       return (
                         <div 
-                          key={warrior.rank}
+                          key={warrior.key}
                           className={`rounded-2xl border transition-all overflow-hidden ${
                             warrior.isMe 
                               ? hasAura
@@ -1416,14 +1571,14 @@ export default function FullFitnessTracker() {
                           }`}
                         >
                           <button
-                            onClick={() => setExpandedProfile(isExpanded ? null : warrior.rank)}
+                            onClick={() => setExpandedProfile(isExpanded ? null : warrior.key)}
                             className="w-full p-4 flex items-center justify-between text-left"
                           >
                             <div className="flex items-center space-x-4">
                               <span className={`text-sm font-mono font-black w-5 text-center ${
                                 warrior.rank === 1 ? 'text-yellow-400 text-base' : warrior.rank === 2 ? 'text-gray-300' : warrior.rank === 3 ? 'text-amber-600' : 'text-gray-500'
                               }`}>
-                                #{warrior.rank}
+                                {warrior.rank > 0 ? `#${warrior.rank}` : '—'}
                               </span>
                               <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${warrior.avatarColor} flex items-center justify-center shadow-inner shrink-0`}>
                                 {warrior.isMe ? <AvatarGlyph config={avatarConfig} size={14} /> : <User size={14} className="text-white" />}
@@ -1436,13 +1591,15 @@ export default function FullFitnessTracker() {
                                 </h4>
                                 <p className="text-[10px] text-gray-500 flex items-center">
                                   <Flame size={10} className="text-orange-500 mr-0.5" /> {warrior.isMe ? displayStreak : warrior.streak} Day Streak
+                                  <span className="mx-1.5 text-gray-700">&bull;</span>
+                                  <span className="font-bold" style={{ color: rankColor(warrior.isMe ? myRankIdx : rankIndex(warrior.xpNum)) }}>{rankName(warrior.isMe ? myRankIdx : rankIndex(warrior.xpNum))}</span>
                                 </p>
                               </div>
                             </div>
 
                             <div className="flex items-center space-x-2">
                               <div className="text-right">
-                                <span className="block text-xs font-mono font-black text-gray-200">{warrior.xp}</span>
+                                <span className="block text-xs font-mono font-black text-gray-200">{fmtXp(warrior.xpNum)}</span>
                                 <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Power XP</span>
                               </div>
                               <ChevronDown size={16} className={`text-gray-500 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} />
@@ -1465,7 +1622,7 @@ export default function FullFitnessTracker() {
                                       </svg>
                                     </div>
                                     <div className="space-y-1.5">
-                                      <p className="text-xs font-bold text-gray-300">{warrior.title}</p>
+                                      <p className="text-xs font-bold text-gray-300">{warrior.isMe ? `Level ${lvl.level} ${rankName(myRankIdx)}` : warrior.title}</p>
                                       <div className="flex items-center space-x-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-rose-500" /><span>Power {dPower}%</span></div>
                                       <div className="flex items-center space-x-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-emerald-400" /><span>Time {dTime}%</span></div>
                                       <div className="flex items-center space-x-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-sky-400" /><span>Discipline {dDiscipline}%</span></div>
@@ -1612,6 +1769,7 @@ export default function FullFitnessTracker() {
                       month0={nowDate.getMonth()}
                       tallies={streakState.tallies}
                       startDate={startDate}
+                      seasons={seasons}
                     />
                   ) : (
                   <>
@@ -1628,11 +1786,14 @@ export default function FullFitnessTracker() {
                         <AvatarGlyph config={avatarConfig} size={32} />
                       </div>
                     </div>
-                    <h3 className="text-xl font-bold">Level 42 Overlord</h3>
-                    <p className="text-xs text-purple-400 font-medium mt-1">Next rank in 14,000 XP</p>
-                    
-                    <div className="w-full bg-gray-900 h-2 rounded-full mt-4 border border-gray-700 overflow-hidden">
-                      <div className="bg-gradient-to-r from-rose-500 to-purple-500 h-full w-[80%] rounded-full"></div>
+                    <h3 className="text-xl font-bold">Level {lvl.level} <span style={{ color: rankColor(myRankIdx) }}>{rankName(myRankIdx)}</span></h3>
+                    <p className="text-xs text-purple-400 font-medium mt-1">{lvl.maxed ? 'Max level reached' : `${fmtXp(lvl.need - lvl.into)} XP to level ${lvl.level + 1}`}</p>
+                    <div className="w-full bg-gray-900 h-2 rounded-full mt-4 border border-gray-700 overflow-hidden" role="progressbar" aria-valuenow={Math.round(lvl.pct)} aria-valuemin={0} aria-valuemax={100} aria-label="Level progress">
+                      <div className="bg-gradient-to-r from-rose-500 to-purple-500 h-full rounded-full transition-all duration-700" style={{ width: `${lvl.pct}%` }}></div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-500 font-mono mt-2">
+                      <span>{fmtXp(totalXp)} XP total</span>
+                      <span>{myRank.nextName ? `${fmtXp(myRank.toNext)} XP to ${myRank.nextName}` : myRankIdx < 0 ? 'Earn XP to get ranked' : 'Top rank'}</span>
                     </div>
                   </div>
 
